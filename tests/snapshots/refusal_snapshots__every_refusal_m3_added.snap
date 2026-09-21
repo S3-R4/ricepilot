@@ -1,0 +1,27 @@
+---
+source: tests/refusal_snapshots.rs
+expression: s
+---
+recording a real directory as an owned link
+  exit 2  refusing: cannot record a real directory as an owned link; the ledger records links ricepilot created (<HOME>/.config/hypr) [R4]
+
+recording a path that is not there
+  exit 2  refusing: cannot record an owned path that does not exist (<HOME>/.config/nothing) [R4]
+
+a ledger that does not parse
+  exit 2  refusing: the ledger does not parse, so ricepilot cannot tell which live paths it owns: key with no value, expected `=` (<HOME>/.local/state/ricepilot/ledger.toml) [R4]
+
+asking for a generation that was never written
+  exit 2  refusing: there is no generation 0004 to read (<HOME>/.local/state/ricepilot/generations/0004.toml) [R4]
+
+a current-generation pointer that is not a number
+  exit 2  refusing: the current-generation pointer reads "not a number", which is not a generation number (<HOME>/.local/state/ricepilot/generations/current) [R4]
+
+a current-generation pointer that is a symlink
+  exit 2  refusing: the current-generation pointer is not a regular file. ricepilot writes it as a regular file precisely so that a switch which goes wrong cannot damage the one thing that says how to get back (<HOME>/.local/state/ricepilot/generations/current) [R4]
+
+a recorded tree manifest that does not parse
+  exit 2  refusing: the recorded manifest does not parse: key with no value, expected `=` (<HOME>/.local/state/ricepilot/manifests/one.toml) [R4]
+
+a generated script that does not parse
+  exit 2  refusing: the generated rescue script did not parse, so it was not written: <what sh said> (/bin/sh) [R4]

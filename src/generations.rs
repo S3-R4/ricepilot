@@ -144,7 +144,8 @@ pub fn current(state: &Path) -> Result<Option<u32>> {
             rule: "R4",
             path: p,
             why: "the current-generation pointer is not a regular file. ricepilot writes it as \
-                  one precisely so that a switch which went wrong cannot have taken it with them"
+                  a regular file precisely so that a switch which goes wrong cannot damage the \
+                  one thing that says how to get back"
                 .into(),
         });
     }
