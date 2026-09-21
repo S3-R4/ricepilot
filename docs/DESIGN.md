@@ -189,6 +189,12 @@ Each rung works when the one above it does not:
    checked before it is written, written atomically as a **real file** so a
    bad switch cannot take it with them. Runs from a TTY with no D-Bus, no
    hyprctl, no fish, no quickshell.
+
+   It deliberately does **not** `set -e`: each destination is an independent
+   `if … else echo FAILED … fi`, so one path it cannot restore does not cost
+   the user the ones it can (D37). It has no delete either, so a destination
+   the restored generation did not have is displaced into
+   `state/attic/rescue-NNNN/`.
 4. TTY (F2–F6) → `Hyprland --safe-mode`.
 5. Log out to the greeter, whose plain `Hyprland` session entry is immune to
    anything in `$HOME`.

@@ -333,3 +333,26 @@ pub fn verify(
     }
     s
 }
+
+/// `ricepilot rescue`. Prints where the script is and what running it does —
+/// and prints the command in full, because the person reading this may be
+/// typing it at a TTY from a photograph of another screen.
+pub fn rescue(path: &Path) -> String {
+    let mut s = String::new();
+    let _ = writeln!(s, "the standalone rescue script is at:");
+    let _ = writeln!(s, "  {}", path.display());
+    let _ = writeln!(s);
+    let _ = writeln!(s, "run it from a TTY (Ctrl+Alt+F2 … F6) with:");
+    let _ = writeln!(s, "  sh {}", path.display());
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "it restores the previous generation using absolute paths only. it needs no ricepilot,"
+    );
+    let _ = writeln!(
+        s,
+        "no D-Bus, no hyprctl and no shell but /bin/sh, and it removes nothing: anything it"
+    );
+    let _ = writeln!(s, "displaces goes to `state/attic/`.");
+    s
+}

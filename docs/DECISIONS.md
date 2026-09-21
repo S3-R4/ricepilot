@@ -568,3 +568,38 @@ Finishing it would be recovery inventing an effect rather than completing one.
 The same mechanism serves `switch` — a profile that drops a path its
 predecessor managed retires that path — so `rollback` is not the only caller
 and therefore not the only tested path.
+
+## D37 — `sh -n` reads the script on stdin, and a script that fails it is not written
+
+*M3.* `rescue.sh` must be parsed before it is written. A rescue script with a
+syntax error is not a degraded rescue script — it is a file that looks like a
+way out and is not one, discovered by a user at a TTY with no desktop. So a
+script that does not parse is refused and the previous one, which did parse, is
+left exactly where it is.
+
+`sh -n` is fed the script on **stdin** rather than through a temporary file.
+A temp file would have to be tidied away afterwards, and tidying away is a
+removal, which exists nowhere outside `src/gc/` (R2). This is the first entry
+in `ops::exec`'s allowlist; the rest of that module remains M5.
+
+Three further calls in the generated script:
+
+* **It does not `set -e`.** Each destination is an independent `if … then …
+  else echo FAILED … fi`, so one path it cannot restore does not cost the user
+  the ones it can. This is the opposite of R5's all-or-nothing rule, on
+  purpose: R5 governs ricepilot's own transactional mutations, and this script
+  is rung 3 of the ladder — the thing you run *because* the transactional path
+  did not work. Maximising what comes back is the right goal there, and the
+  script reports each step so the outcome is never silent.
+* **`PATH` is not consulted.** The three commands are located by `lstat`ing
+  `/usr/bin`, `/bin` and `/usr/local/bin` when the script is generated, and
+  written out absolute. A rescue script that needs the environment to be right
+  is a rescue script for a problem other than the one it exists for. If a
+  command is not found, the script is not written at all — naming a binary
+  that is not there would fail at the one moment it was relied on.
+* **A destination the restored generation did not have is displaced**, into
+  `state/attic/rescue-NNNN/`, with `mkdir -p` and `mv -T`. Same answer as D36,
+  for the same reason: the script has no delete either.
+
+Paths are single-quoted with `'` → `'\''`, and a fixture whose paths contain a
+quote is run through a real `/bin/sh` to prove it.

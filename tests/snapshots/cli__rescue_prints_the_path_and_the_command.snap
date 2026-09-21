@@ -1,0 +1,13 @@
+---
+source: tests/cli.rs
+expression: r.stdout
+---
+the standalone rescue script is at:
+  <HOME>/.local/state/ricepilot/rescue.sh
+
+run it from a TTY (Ctrl+Alt+F2 … F6) with:
+  sh <HOME>/.local/state/ricepilot/rescue.sh
+
+it restores the previous generation using absolute paths only. it needs no ricepilot,
+no D-Bus, no hyprctl and no shell but /bin/sh, and it removes nothing: anything it
+displaces goes to `state/attic/`.

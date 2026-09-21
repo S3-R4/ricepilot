@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: r.stderr
+---
+ricepilot: refusing: there is no rescue script yet. one is written after each successful switch, and until a switch has happened there is no previous generation for it to restore (<HOME>/.local/state/ricepilot/rescue.sh) [R7]

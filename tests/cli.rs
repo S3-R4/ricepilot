@@ -339,3 +339,31 @@ fn verify_reports_drift_and_exits_with_the_drift_code() {
     assert_eq!(r.code, ricepilot::error::ExitCode::Drift as i32);
     insta::assert_snapshot!(r.stdout);
 }
+
+/// Before any switch there is no previous generation, so there is no script.
+/// Saying so beats printing a path to a file that is not there.
+#[test]
+fn rescue_before_any_switch_refuses_and_says_why() {
+    let f = with_caelestia("cli_rescue_none");
+    let r = run(&f, &["rescue"]);
+    assert_eq!(r.code, ricepilot::error::ExitCode::Refused as i32);
+    insta::assert_snapshot!(r.stderr);
+}
+
+/// Once one exists, the command prints where it is and the exact line to type.
+#[test]
+fn rescue_prints_the_path_and_the_command() {
+    let f = with_caelestia("cli_rescue");
+    let g = ricepilot::generations::Generation::observe(
+        0,
+        "caelestia",
+        "20260921T101112Z",
+        &[f.path(".config/hypr")],
+    )
+    .unwrap();
+    ricepilot::rescue::regenerate(&f.state(), &g).unwrap();
+
+    let r = run(&f, &["rescue"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    insta::assert_snapshot!(r.stdout);
+}
