@@ -132,10 +132,7 @@ fn an_exchange_never_touches_either_profile_tree() {
             f.ident("rice/old/hypr/hyprland.conf"),
             f.ident("rice/new/hypr/hyprland.conf"),
         ];
-        let mtimes = [
-            mutate::mtime_ns(&old).unwrap(),
-            mutate::mtime_ns(&new).unwrap(),
-        ];
+        let mtimes = [read::mtime_ns(&old).unwrap(), read::mtime_ns(&new).unwrap()];
 
         mutate::exchange(mode, &dest, &staged).unwrap();
 
@@ -151,10 +148,7 @@ fn an_exchange_never_touches_either_profile_tree() {
         );
         assert_eq!(
             mtimes,
-            [
-                mutate::mtime_ns(&old).unwrap(),
-                mutate::mtime_ns(&new).unwrap()
-            ],
+            [read::mtime_ns(&old).unwrap(), read::mtime_ns(&new).unwrap()],
             "{mode:?}"
         );
     }
@@ -210,4 +204,40 @@ fn write_atomic_replaces_content_and_leaves_no_temp_behind() {
         .map(|n| n.to_string_lossy().into_owned())
         .collect();
     assert_eq!(names, vec!["current.toml".to_string()]);
+}
+
+/// `Meta` carries everything one `fstatat` can answer, so a caller that needs
+/// the mode, the ownership and the mtime of a path gets them from a single
+/// syscall rather than from three that could describe three different files.
+#[test]
+fn meta_carries_mode_ownership_and_mtime_from_one_stat() {
+    let f = Fixture::new_in("m2", "meta_fields");
+    let file = f.file("rice/one/marker", "content\n");
+    let m = read::lstat(&file).unwrap().unwrap();
+
+    assert_eq!(m.kind, read::Kind::File);
+    assert_eq!(m.uid, rustix_uid());
+    assert_ne!(m.mtime_ns, 0);
+    assert_eq!(read::mtime_ns(&file).unwrap(), m.mtime_ns);
+
+    // A symlink is stat'ed as itself, never as what it points at.
+    let link = f.link(".config/marker", &file);
+    let lm = read::lstat(&link).unwrap().unwrap();
+    assert_eq!(lm.kind, read::Kind::Symlink);
+    assert_ne!(lm.ino, m.ino);
+}
+
+/// Taken through the same interface the crate uses, so the assertion above is
+/// about ricepilot's view of the file rather than about the test's.
+fn rustix_uid() -> u32 {
+    std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(env!("CARGO_MANIFEST_DIR")).unwrap())
+}
+
+/// Asking for the mtime of something that is not there is a refusal naming the
+/// path, not a zero that a comparison would silently accept.
+#[test]
+fn an_absent_path_has_no_modification_time() {
+    let f = Fixture::new_in("m2", "meta_absent");
+    let err = read::mtime_ns(&f.path(".config/nothing")).unwrap_err();
+    assert_eq!(err.exit_code(), ricepilot::error::ExitCode::Refused);
 }

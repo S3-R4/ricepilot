@@ -433,3 +433,22 @@ ricepilot own", and it is the file whose name says so.
 that looked correct was reported as foreign while the ledger reader was
 unwritten. It is written; the explanation is now false, and a note that
 outlives its reason is a lie told in a reassuring tone.
+
+## D32 — `Meta` carries what one `fstatat` can answer, and `mtime_ns` moves to `read`
+
+*M3.* `ops::read::Meta` held kind, dev, ino and mode, because that is what the
+planner needs. `verify` needs uid, gid and the mtime as well, and `mtime_ns`
+was sitting in `ops::mutate` — where M2 put it because it was the mutating
+side's own proof obligation, and where it never belonged, since reading a
+timestamp changes nothing.
+
+Both are fixed together. `Meta` now carries every field a single
+`fstatat(AT_SYMLINK_NOFOLLOW)` answers, and `mtime_ns` is a thin wrapper over
+`lstat` on the read side.
+
+Widening `Meta` rather than adding a second stat-shaped struct is the point,
+not a convenience: a manifest entry that took its hash from one syscall and its
+mode from another would be describing two files whenever something wrote
+between them. One `statat`, one answer.
+
+This is an ops-surface change, so it is its own commit and this is its reason.

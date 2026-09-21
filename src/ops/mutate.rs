@@ -16,7 +16,7 @@ use std::ffi::{OsStr, OsString};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use rustix::fs::{AtFlags, Mode, OFlags, RenameFlags};
+use rustix::fs::{Mode, OFlags, RenameFlags};
 
 use super::read::{self, io, Kind};
 use crate::plan::Op;
@@ -377,16 +377,6 @@ pub fn link_target(path: &Path) -> Result<Option<Option<PathBuf>>> {
         Some(m) if m.kind == Kind::Symlink => Ok(Some(Some(read::readlink(path)?))),
         Some(_) => Ok(Some(None)),
     }
-}
-
-/// `utimensat`-free mtime read, for the tests that assert a pre-existing
-/// target was not touched. Lives here rather than in `read` because it is the
-/// mutating side's own proof obligation.
-pub fn mtime_ns(path: &Path) -> Result<i64> {
-    let (dirfd, name) = read::parent_dirfd(path)?;
-    let st = rustix::fs::statat(&dirfd, name.as_os_str(), AtFlags::SYMLINK_NOFOLLOW)
-        .map_err(|e| io(format!("stat {}", path.display()), e))?;
-    Ok(st.st_mtime as i64 * 1_000_000_000 + st.st_mtime_nsec as i64)
 }
 
 /// What [`apply`] needs that is not in the op itself.

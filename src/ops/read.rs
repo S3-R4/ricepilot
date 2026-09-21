@@ -26,8 +26,14 @@ pub enum Kind {
     Other,
 }
 
-/// The facts the planner needs about one inode, all from a single
+/// The facts about one inode, all from a single
 /// `fstatat(AT_SYMLINK_NOFOLLOW)`.
+///
+/// The planner needs only `kind`, `dev`, `ino` and `mode`. [`crate::verify`]
+/// needs the ownership and the mtime too, and taking them from the same
+/// `statat` the caller already made is both cheaper and — more to the point —
+/// atomic: a hash and a mode read a moment apart can describe two different
+/// files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Meta {
     pub kind: Kind,
@@ -35,6 +41,11 @@ pub struct Meta {
     pub ino: u64,
     /// Permission bits only (`st_mode & 0o7777`).
     pub mode: u32,
+    pub uid: u32,
+    pub gid: u32,
+    /// Whole nanoseconds since the epoch, so a manifest comparison is an
+    /// integer comparison rather than a float one.
+    pub mtime_ns: i64,
 }
 
 // `st_dev`/`st_ino`/`f_type` are `c_ulong`/`c_long` on some targets and fixed
@@ -54,7 +65,27 @@ fn meta_of(st: &rustix::fs::Stat) -> Meta {
         dev: st.st_dev as u64,
         ino: st.st_ino as u64,
         mode: mode & 0o7777,
+        uid: st.st_uid as u32,
+        gid: st.st_gid as u32,
+        mtime_ns: st.st_mtime as i64 * 1_000_000_000 + st.st_mtime_nsec as i64,
     }
+}
+
+/// The mtime of whatever is at `path`, without following a final symlink.
+///
+/// A thin wrapper over [`lstat`], kept as a named helper because the tests
+/// that assert a pre-existing target was never touched read better for it,
+/// and because it lives on the *read* side: it was in `mutate` only because
+/// M2 needed it there as a proof obligation, and `verify` is what made that
+/// untidiness visible.
+pub fn mtime_ns(path: &Path) -> Result<i64> {
+    lstat(path)?
+        .map(|m| m.mtime_ns)
+        .ok_or_else(|| Error::Refused {
+            rule: "R1",
+            path: path.to_path_buf(),
+            why: "nothing is here to take a modification time from".into(),
+        })
 }
 
 /// Shared by [`super::mutate`] so both sides of the boundary report a syscall

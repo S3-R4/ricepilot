@@ -25,7 +25,7 @@ fn tree_identities(root: &std::path::Path) -> BTreeMap<PathBuf, (u64, u64, i64)>
         for name in read::list_dir(&dir).unwrap() {
             let p = dir.join(name);
             let m = read::lstat(&p).unwrap().unwrap();
-            out.insert(p.clone(), (m.dev, m.ino, mutate::mtime_ns(&p).unwrap()));
+            out.insert(p.clone(), (m.dev, m.ino, read::mtime_ns(&p).unwrap()));
             if m.kind == read::Kind::Dir {
                 stack.push(p);
             }
