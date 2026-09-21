@@ -46,6 +46,37 @@ pub fn build_links_only(case: &str, mode: ExchangeMode) -> Scenario {
     build_with(case, mode, false)
 }
 
+/// Re-describe a scenario whose tree already exists, without disturbing it.
+/// The journal comes from the disk, because after a crash the disk is the only
+/// place it is.
+pub fn attach(case: &str, mode: ExchangeMode) -> Scenario {
+    let f = Fixture::attach("m2", case);
+    let old_root = f.path("rice/old");
+    let new_root = f.path("rice/new");
+    let attic = f.state().join("attic").join(ID);
+    let targets: Vec<Target> = ["hypr", "foot", "btop"]
+        .iter()
+        .map(|leaf| Target {
+            dest: f.path(&format!(".config/{leaf}")),
+            src: new_root.join(leaf),
+        })
+        .collect();
+    let journal = ricepilot::journal::read_current(&f.state().join("journal").join("current.toml"))
+        .unwrap()
+        .expect("the crashed process wrote its journal before its first effect");
+    Scenario {
+        f,
+        old_root,
+        new_root,
+        attic,
+        targets,
+        observed: Vec::new(),
+        ops: Vec::new(),
+        journal,
+        mode,
+    }
+}
+
 pub fn build_with(case: &str, mode: ExchangeMode, include_absent: bool) -> Scenario {
     let f = Fixture::new_in("m2", case);
     let old_root = f.dir("rice/old");

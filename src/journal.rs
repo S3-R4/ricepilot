@@ -281,3 +281,432 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
+
+// ---------------------------------------------------------------------------
+// Recovery
+// ---------------------------------------------------------------------------
+
+/// Which side of the switch one destination is on, decided by reading the
+/// filesystem rather than by consulting a step counter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    /// The link still points where it did before the switch — or, for a
+    /// destination that was absent, still does not exist.
+    Old,
+    /// The link points at the new profile.
+    New,
+    /// Neither: the fallback exchange's window, in which the destination does
+    /// not exist and the two links are parked at sibling names.
+    InFlight,
+}
+
+impl Side {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Side::Old => "old",
+            Side::New => "new",
+            Side::InFlight => "mid-exchange",
+        }
+    }
+}
+
+/// Which way the whole switch will be driven. There is no third option: R5
+/// forbids leaving it mixed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// At least one destination is already new, so finishing is the only move
+    /// that does not undo something that has already taken effect.
+    Forward,
+    /// Nothing was exchanged before the crash. The switch never started, and
+    /// the staged links go to the attic.
+    Backward,
+}
+
+impl Direction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Direction::Forward => "forward",
+            Direction::Backward => "backward",
+        }
+    }
+}
+
+/// A step recovery would take. A closed set, like [`Op`], and executed only by
+/// [`mutate`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    StageLink { path: PathBuf, target: PathBuf },
+    CreateLink { dest: PathBuf, target: PathBuf },
+    Exchange { dest: PathBuf, staged: PathBuf },
+    Rename { from: PathBuf, to: PathBuf },
+    ToAttic { from: PathBuf, rel: PathBuf },
+    FsyncDir { dir: PathBuf },
+}
+
+impl std::fmt::Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Action::StageLink { path, target } => {
+                write!(f, "stage link   {} -> {}", path.display(), target.display())
+            }
+            Action::CreateLink { dest, target } => {
+                write!(f, "create link  {} -> {}", dest.display(), target.display())
+            }
+            Action::Exchange { dest, staged } => {
+                write!(
+                    f,
+                    "exchange     {} <-> {}",
+                    dest.display(),
+                    staged.display()
+                )
+            }
+            Action::Rename { from, to } => {
+                write!(f, "rename       {} -> {}", from.display(), to.display())
+            }
+            Action::ToAttic { from, rel } => {
+                write!(
+                    f,
+                    "to attic     {} -> <attic>/{}",
+                    from.display(),
+                    rel.display()
+                )
+            }
+            Action::FsyncDir { dir } => write!(f, "fsync dir    {}", dir.display()),
+        }
+    }
+}
+
+/// One destination, as recovery found it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Status {
+    pub dest: PathBuf,
+    pub side: Side,
+}
+
+/// The complete recovery decision. Produced without mutating anything, so
+/// `recover` can print it and stop (R4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recovery {
+    pub id: String,
+    pub profile: String,
+    pub direction: Direction,
+    pub statuses: Vec<Status>,
+    pub actions: Vec<Action>,
+}
+
+/// What a slot — a destination or one of its two staging names — holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Slot {
+    Absent,
+    /// A symlink pointing at the pre-switch target.
+    Old,
+    /// A symlink pointing at the post-switch target.
+    New,
+    /// Anything else. Never acted on.
+    Foreign(String),
+}
+
+fn slot_of(path: &Path, old: Option<&Path>, new: &Path) -> Result<Slot> {
+    Ok(match mutate::link_target(path)? {
+        None => Slot::Absent,
+        Some(None) => Slot::Foreign("not a symlink".into()),
+        Some(Some(t)) if Some(t.as_path()) == old => Slot::Old,
+        Some(Some(t)) if t == new => Slot::New,
+        Some(Some(t)) => Slot::Foreign(format!("a symlink to {}", t.display())),
+    })
+}
+
+fn foreign(path: &Path, detail: &str) -> Error {
+    Error::Refused {
+        rule: "R4",
+        path: path.to_path_buf(),
+        why: format!(
+            "an interrupted switch left this destination as {detail}, which is neither the \
+             profile it was on nor the one it was moving to. ricepilot will not guess what \
+             happened to it"
+        ),
+    }
+}
+
+/// The three names one destination's links can be sitting at mid-switch.
+struct Slots {
+    dest: Slot,
+    staged: Slot,
+    swap: Slot,
+}
+
+fn read_slots(e: &Entry) -> Result<Slots> {
+    let old = e.old_target.as_deref();
+    let dest = slot_of(&e.dest, old, &e.new_target)?;
+    let (staged, swap) = match &e.staged {
+        Some(s) => (
+            slot_of(s, old, &e.new_target)?,
+            slot_of(&mutate::fallback_slot(s), old, &e.new_target)?,
+        ),
+        None => (Slot::Absent, Slot::Absent),
+    };
+    Ok(Slots { dest, staged, swap })
+}
+
+fn side_of(e: &Entry, s: &Slots) -> Result<Side> {
+    match &s.dest {
+        Slot::New => Ok(Side::New),
+        Slot::Old => Ok(Side::Old),
+        // A destination that was absent before the switch is still "old" while
+        // it is absent, and there is nothing mid-exchange about it: `CreateLink`
+        // is a single atomic `symlinkat` with no window (D11).
+        Slot::Absent if e.old_target.is_none() => Ok(Side::Old),
+        // Absent with an old target recorded means the fallback's window.
+        Slot::Absent => Ok(Side::InFlight),
+        Slot::Foreign(detail) => Err(foreign(&e.dest, detail)),
+    }
+}
+
+/// Where a staged link that is being abandoned lands in the attic. Distinct
+/// from the displaced old link's slot so the attic says which is which.
+fn staged_attic_rel(e: &Entry) -> PathBuf {
+    let base = e
+        .attic_rel
+        .clone()
+        .unwrap_or_else(|| e.dest.strip_prefix("/").unwrap_or(&e.dest).to_path_buf());
+    let name = base
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match base.parent() {
+        Some(p) => p.join(format!("{name}.staged")),
+        None => PathBuf::from(format!("{name}.staged")),
+    }
+}
+
+/// Decide what to do about one destination, given where it actually is.
+///
+/// Nothing here consults a step number. Each arm is chosen by what the three
+/// slots hold, which is why replaying a journal twice is the same as replaying
+/// it once: the second run finds the destination already on the side it was
+/// driven to and emits no action for it.
+fn actions_for(e: &Entry, s: &Slots, dir: Direction) -> Result<Vec<Action>> {
+    let mut out = Vec::new();
+    let staged = e.staged.clone();
+
+    match dir {
+        Direction::Forward => match (&s.dest, &s.staged, &s.swap) {
+            // Already new. All that can remain is the displaced old link,
+            // sitting at one of the staging names.
+            (Slot::New, _, _) => {
+                if let Some(st) = &staged {
+                    if s.staged == Slot::Old {
+                        out.push(Action::ToAttic {
+                            from: st.clone(),
+                            rel: e.attic_rel.clone().unwrap_or_else(|| staged_attic_rel(e)),
+                        });
+                    }
+                    if s.swap == Slot::Old {
+                        out.push(Action::ToAttic {
+                            from: mutate::fallback_slot(st),
+                            rel: e.attic_rel.clone().unwrap_or_else(|| staged_attic_rel(e)),
+                        });
+                    }
+                }
+            }
+
+            // The destination was absent before the switch and still is: the
+            // single `symlinkat` never ran.
+            (Slot::Absent, _, _) if e.old_target.is_none() => out.push(Action::CreateLink {
+                dest: e.dest.clone(),
+                target: e.new_target.clone(),
+            }),
+
+            // The fallback's window: the old link is parked at `staged`, the
+            // new one at `swap`. Finish step three, then displace the old one.
+            (Slot::Absent, Slot::Old, Slot::New) => {
+                let st = staged.clone().expect("window implies a staged name");
+                out.push(Action::Rename {
+                    from: mutate::fallback_slot(&st),
+                    to: e.dest.clone(),
+                });
+                out.push(displace(e, st));
+            }
+
+            // Still old, with the new link already staged: the ordinary
+            // pre-exchange state. After the exchange the staged name holds the
+            // old link, which is what goes to the attic.
+            (Slot::Old, Slot::New, Slot::Absent) => {
+                let st = staged.clone().expect("a staged slot implies a staged name");
+                out.push(Action::Exchange {
+                    dest: e.dest.clone(),
+                    staged: st.clone(),
+                });
+                out.push(displace(e, st));
+            }
+
+            // Still old, but the fallback had already moved the new link to
+            // its scratch name. Resume from its step two.
+            (Slot::Old, Slot::Absent, Slot::New) => {
+                let st = staged.clone().expect("a swap slot implies a staged name");
+                out.push(Action::Rename {
+                    from: e.dest.clone(),
+                    to: st.clone(),
+                });
+                out.push(Action::Rename {
+                    from: mutate::fallback_slot(&st),
+                    to: e.dest.clone(),
+                });
+                out.push(displace(e, st));
+            }
+
+            // Still old and nothing staged at all: the crash beat the staging
+            // step. Stage it now and exchange. This is the case a step-driven
+            // replay gets wrong, because the recorded step that created the
+            // link is the one that did not happen.
+            (Slot::Old, Slot::Absent, Slot::Absent) => {
+                let st = staged.clone().ok_or_else(|| Error::Refused {
+                    rule: "R4",
+                    path: e.dest.clone(),
+                    why: "journal records an exchange with no staging name".into(),
+                })?;
+                out.push(Action::StageLink {
+                    path: st.clone(),
+                    target: e.new_target.clone(),
+                });
+                out.push(Action::Exchange {
+                    dest: e.dest.clone(),
+                    staged: st.clone(),
+                });
+                out.push(displace(e, st));
+            }
+
+            (dest, st, sw) => return Err(unexpected(e, dest, st, sw)),
+        },
+
+        Direction::Backward => match (&s.dest, &s.staged, &s.swap) {
+            // Nothing was exchanged, so the destination is untouched. Only the
+            // staged links need to go, and they go to the attic like anything
+            // else ricepilot displaces.
+            (Slot::Old, _, _) | (Slot::Absent, _, _) => {
+                if let Some(st) = &staged {
+                    if s.staged == Slot::New {
+                        out.push(Action::ToAttic {
+                            from: st.clone(),
+                            rel: staged_attic_rel(e),
+                        });
+                    }
+                    if s.swap == Slot::New {
+                        out.push(Action::ToAttic {
+                            from: mutate::fallback_slot(st),
+                            rel: staged_attic_rel(e),
+                        });
+                    }
+                }
+            }
+            (dest, st, sw) => return Err(unexpected(e, dest, st, sw)),
+        },
+    }
+    Ok(out)
+}
+
+/// The displaced old link's move into the attic. Every forward arm that drives
+/// a destination across ends with one: the exchange leaves the old link at the
+/// staging name, and leaving it there would mean a `.rp-tmp-0` symlink sitting
+/// in the user's `~/.config` forever.
+fn displace(e: &Entry, staged: PathBuf) -> Action {
+    Action::ToAttic {
+        from: staged,
+        rel: e.attic_rel.clone().unwrap_or_else(|| staged_attic_rel(e)),
+    }
+}
+
+fn unexpected(e: &Entry, dest: &Slot, staged: &Slot, swap: &Slot) -> Error {
+    Error::Refused {
+        rule: "R5",
+        path: e.dest.clone(),
+        why: format!(
+            "an interrupted switch left a combination ricepilot cannot account for \
+             (destination: {dest:?}, staged: {staged:?}, scratch: {swap:?}). It will not \
+             guess; nothing has been changed"
+        ),
+    }
+}
+
+/// Work out what it would take to finish — or abandon — an interrupted switch.
+///
+/// Read-only. The caller prints this and stops unless `--commit` was given
+/// (R4), and passes the very same value to [`execute`] if it was.
+pub fn plan_recovery(j: &Journal) -> Result<Recovery> {
+    let mut slots = Vec::new();
+    let mut statuses = Vec::new();
+    for e in &j.entries {
+        let s = read_slots(e)?;
+        statuses.push(Status {
+            dest: e.dest.clone(),
+            side: side_of(e, &s)?,
+        });
+        slots.push(s);
+    }
+
+    // Once a single exchange has taken effect, going back means undoing
+    // something that is already true of the machine, using the same window
+    // that just failed. Going forward finishes what is already most of the
+    // way done. Before the first exchange there is nothing to finish, and the
+    // switch is abandoned instead.
+    let direction = if statuses
+        .iter()
+        .any(|s| s.side == Side::New || s.side == Side::InFlight)
+    {
+        Direction::Forward
+    } else {
+        Direction::Backward
+    };
+
+    let mut actions = Vec::new();
+    for (e, s) in j.entries.iter().zip(&slots) {
+        actions.extend(actions_for(e, s, direction)?);
+    }
+
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for e in &j.entries {
+        if let Some(p) = e.dest.parent() {
+            if !dirs.contains(&p.to_path_buf()) {
+                dirs.push(p.to_path_buf());
+            }
+        }
+    }
+    for dir in dirs {
+        actions.push(Action::FsyncDir { dir });
+    }
+    actions.push(Action::FsyncDir {
+        dir: j.attic.clone(),
+    });
+
+    Ok(Recovery {
+        id: j.id.clone(),
+        profile: j.profile.clone(),
+        direction,
+        statuses,
+        actions,
+    })
+}
+
+/// Carry out a [`Recovery`]. Separate from [`plan_recovery`] so the printed
+/// decision and the executed one are the same value (R4), exactly as
+/// [`crate::plan`] and [`mutate::apply`] are.
+pub fn execute(r: &Recovery, journal_path: &Path, mode: ExchangeMode, attic: &Path) -> Result<()> {
+    for action in &r.actions {
+        match action {
+            Action::StageLink { path, target } => mutate::create_symlink_tmp(path, target)?,
+            Action::CreateLink { dest, target } => mutate::create_symlink(dest, target)?,
+            Action::Exchange { dest, staged } => mutate::exchange(mode, dest, staged)?,
+            Action::Rename { from, to } => mutate::rename_within(from, to)?,
+            Action::ToAttic { from, rel } => {
+                mutate::rename_to_attic(from, attic, rel)?;
+            }
+            Action::FsyncDir { dir } => mutate::fsync_dir(dir)?,
+        }
+    }
+    // Retiring the journal is deliberately not one of the actions: while the
+    // journal is in place another `recover` can be run, and that must stay
+    // true until every action above has succeeded. A failure half way through
+    // recovery leaves a machine that can be recovered again.
+    mark_done(journal_path, &r.id)?;
+    Ok(())
+}

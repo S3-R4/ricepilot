@@ -32,6 +32,14 @@ impl Fixture {
         Self::new_in("m1", case)
     }
 
+    /// Take the tree for `case` exactly as it stands, without rebuilding it.
+    /// Used to inspect what a helper process left behind.
+    pub fn attach(group: &str, case: &str) -> Self {
+        Self {
+            home: fixture_root().join(group).join(case).join("home"),
+        }
+    }
+
     /// Same, in a named group, so one milestone's fixtures cannot collide with
     /// another's.
     pub fn new_in(group: &str, case: &str) -> Self {
