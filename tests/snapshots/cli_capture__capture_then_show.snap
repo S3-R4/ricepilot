@@ -1,0 +1,17 @@
+---
+source: tests/cli_capture.rs
+expression: shown.stdout
+---
+profile:      mine
+root:         <HOME>/.local/share/ricepilot/profiles/mine (owned payload)
+hypr dialect: (unset)
+requires:     (none)
+
+paths:
+  dir-link   relogin  <HOME>/.config/hypr <- <HOME>/.local/share/ricepilot/profiles/mine/hypr
+
+volatile globs (excluded from hashing):
+  (none)
+
+generated paths (never linked, never profile content):
+  (none)

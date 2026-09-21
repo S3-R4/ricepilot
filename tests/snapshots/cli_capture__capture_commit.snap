@@ -1,0 +1,45 @@
+---
+source: tests/cli_capture.rs
+expression: r.stdout
+---
+capture: new profile `mine`
+into:    <HOME>/.local/share/ricepilot/profiles/mine
+
+<HOME>/.config/hypr  ->  <profile>/hypr
+  2 director(ies), 3 file(s), 2 symlink(s), 52 byte(s)
+
+  1 absolute symlink(s) inside the tree. ricepilot copies a link as a link and
+  never rewrites one, so each of these keeps pointing where it points now:
+    userChrome.css -> <HOME>/.config/hypr/scripts/configs.fish  (back into this tree)
+
+  1 file(s) only their owner can read. a mode-600 file in a config tree is
+  usually a token or a key; consider declaring it `volatile` so its content is
+  not hashed into a manifest:
+    0600  secret.token
+
+profile.toml as it will be written:
+  # written by `ricepilot capture mine`.
+  # ricepilot reads this file and never rewrites it; it is yours to edit.
+  name = "mine"
+  volatile = []
+  generated = []
+  
+  [[path]]
+  dest       = "~/.config/hypr"
+  src        = "hypr"
+  kind       = "dir-link"
+  activation = "relogin"
+
+captured. profile `mine` is at:
+  <HOME>/.local/share/ricepilot/profiles/mine
+
+  hypr: 2 director(ies), 3 file(s), 2 symlink(s), 52 byte(s)
+    reflinked: <depends on the filesystem>
+
+every copy was compared against its original with a blake3 manifest before this
+was written. a manifest of the profile as captured is recorded at:
+  <HOME>/.local/state/ricepilot/manifests/mine.toml
+`ricepilot verify mine` compares against it.
+
+nothing was activated. no live path changed, no link was created and the ledger is
+untouched. to put this profile on the machine: ricepilot switch mine --commit

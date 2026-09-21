@@ -525,3 +525,167 @@ pub fn switch_done(
     let _ = req;
     s
 }
+
+// ---------------------------------------------------------------------------
+// capture
+// ---------------------------------------------------------------------------
+
+/// What one surveyed tree contains, for the block `capture` and `init` both
+/// print. Counts first, then the things a person has to decide about.
+pub fn survey_block(indent: &str, s: &crate::survey::Survey) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "{indent}{} director(ies), {} file(s), {} symlink(s), {} byte(s)",
+        s.dirs, s.files, s.links, s.bytes
+    );
+    if !s.absolute_links.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "{indent}{} absolute symlink(s) inside the tree. ricepilot copies a link as a link \
+             and",
+            s.absolute_links.len()
+        );
+        let _ = writeln!(
+            out,
+            "{indent}never rewrites one, so each of these keeps pointing where it points now:"
+        );
+        for l in &s.absolute_links {
+            let _ = writeln!(
+                out,
+                "{indent}  {} -> {}{}",
+                l.rel,
+                l.target.display(),
+                if l.inside {
+                    "  (back into this tree)"
+                } else {
+                    "  (outside this tree)"
+                }
+            );
+        }
+    }
+    if !s.private.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "{indent}{} file(s) only their owner can read. a mode-600 file in a config tree is",
+            s.private.len()
+        );
+        let _ = writeln!(
+            out,
+            "{indent}usually a token or a key; consider declaring it `volatile` so its content \
+             is"
+        );
+        let _ = writeln!(out, "{indent}not hashed into a manifest:");
+        for p in &s.private {
+            let _ = writeln!(out, "{indent}  {:04o}  {}", p.mode, p.rel);
+        }
+    }
+    if !s.uncopyable.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "{indent}{} path(s) that cannot be copied at all (a socket or a fifo). a copy of \
+             one is",
+            s.uncopyable.len()
+        );
+        let _ = writeln!(
+            out,
+            "{indent}not the same object, so ricepilot refuses rather than pretending:"
+        );
+        for u in &s.uncopyable {
+            let _ = writeln!(out, "{indent}  {u}");
+        }
+    }
+    out
+}
+
+/// The part of `capture` that is the same dry-run and committed.
+pub fn capture_header(c: &super::capture::Capture) -> String {
+    let mut s = String::new();
+    let _ = writeln!(s, "capture: new profile `{}`", c.profile);
+    let _ = writeln!(s, "into:    {}", c.dir.display());
+    let _ = writeln!(s);
+    for src in &c.sources {
+        let _ = writeln!(s, "{}  ->  <profile>/{}", src.live.display(), src.leaf);
+        let _ = write!(s, "{}", survey_block("  ", &src.survey));
+        let _ = writeln!(s);
+    }
+    let _ = writeln!(s, "profile.toml as it will be written:");
+    for line in c.manifest.lines() {
+        let _ = writeln!(s, "  {line}");
+    }
+    s
+}
+
+pub const CAPTURE_UNCOMMITTED: &str = "\nnothing has been changed. re-run with --commit to \
+capture.\ncapture copies into a profile; it does not activate anything and does not touch \
+any\nlive path.\n";
+
+/// Whether the kernel shared the data or copied it. Always printed, and
+/// always with both numbers: "no space was used" and "the space was used"
+/// are different facts about the same command, and which one happened
+/// depends on the filesystem rather than on anything the user did.
+pub fn reflink_note(stats: &crate::ops::mutate::CopyStats) -> String {
+    if stats.cloned == stats.files && stats.files > 0 {
+        format!(
+            "  reflinked: all {} file(s) share their data with the original, costing no space",
+            stats.files
+        )
+    } else if stats.cloned > 0 {
+        format!(
+            "  reflinked: {} of {} file(s); the rest were copied",
+            stats.cloned, stats.files
+        )
+    } else {
+        format!(
+            "  reflinked: none of {} file(s) — this filesystem does not share extents, so the \
+             copy uses its own space",
+            stats.files
+        )
+    }
+}
+
+/// The committed tail.
+pub fn capture_done(
+    c: &super::capture::Capture,
+    copied: &[(String, crate::ops::mutate::CopyStats)],
+    recorded: &Path,
+) -> String {
+    let mut s = String::new();
+    let _ = writeln!(s);
+    let _ = writeln!(s, "captured. profile `{}` is at:", c.profile);
+    let _ = writeln!(s, "  {}", c.dir.display());
+    let _ = writeln!(s);
+    for (leaf, stats) in copied {
+        let _ = writeln!(
+            s,
+            "  {leaf}: {} director(ies), {} file(s), {} symlink(s), {} byte(s)",
+            stats.dirs, stats.files, stats.links, stats.bytes
+        );
+        let _ = writeln!(s, "  {}", reflink_note(stats));
+    }
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "every copy was compared against its original with a blake3 manifest before this"
+    );
+    let _ = writeln!(
+        s,
+        "was written. a manifest of the profile as captured is recorded at:"
+    );
+    let _ = writeln!(s, "  {}", recorded.display());
+    let _ = writeln!(s, "`ricepilot verify {}` compares against it.", c.profile);
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "nothing was activated. no live path changed, no link was created and the ledger is"
+    );
+    let _ = writeln!(
+        s,
+        "untouched. to put this profile on the machine: ricepilot switch {} --commit",
+        c.profile
+    );
+    s
+}

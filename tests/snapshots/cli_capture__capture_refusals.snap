@@ -1,0 +1,20 @@
+---
+source: tests/cli_capture.rs
+expression: s
+---
+with no --from
+  exit 2  ricepilot: refusing: name at least one directory to capture, with `--from <dir>`. ricepilot does not guess which of the 128 entries in a config directory are rice — a path is managed because you named it (<HOME>/.local/share/ricepilot/profiles/mine) [R4]
+a source that is not there
+  exit 2  ricepilot: refusing: there is nothing here to capture (<HOME>/.config/nothing) [R4]
+a source that is a regular file
+  exit 2  ricepilot: refusing: is a regular file, and v1 captures directories only; file deployment is v1.1 (<HOME>/.config/loose.conf) [R4]
+a source that is a symlink
+  exit 2  ricepilot: refusing: is a symlink, and v1 captures directories only. it is not followed here for the same reason nothing is followed anywhere else: what it points at is somewhere ricepilot has not looked. name that directory instead (<HOME>/.config/linked) [R4]
+two sources with the same final component
+  exit 2  ricepilot: refusing: would be stored in the profile as `hypr`, which <HOME>/.config/hypr already claims. capture them separately (<HOME>/elsewhere/hypr) [R4]
+a source with `..` in it
+  exit 2  ricepilot: refusing: path must be absolute and free of `.` and `..` (<HOME>/.config/../.config/hypr) [R1]
+a profile name that is a path
+  exit 2  ricepilot: profile `../escape`: profile name must be a single directory name
+a relative source
+  exit 2  ricepilot: refusing: must be an absolute path or start with `~` (config/hypr) [R1]

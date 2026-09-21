@@ -230,6 +230,20 @@ pub fn readlink(path: &Path) -> Result<PathBuf> {
     ))
 }
 
+/// The size in bytes of whatever is at `path`, from one `fstatat` and
+/// without following a final symlink.
+///
+/// Kept off [`Meta`] because only the survey wants it: `Meta` is the set of
+/// facts the planner and `verify` both need, and a field that one caller
+/// reads is a field every test has to construct.
+#[allow(clippy::unnecessary_cast)]
+pub fn size_of(path: &Path) -> Result<u64> {
+    let (dirfd, name) = parent_dirfd(path)?;
+    let st = rustix::fs::statat(&dirfd, name.as_os_str(), AtFlags::SYMLINK_NOFOLLOW)
+        .map_err(|e| io(format!("stat {}", path.display()), e))?;
+    Ok(st.st_size as u64)
+}
+
 /// `st_dev` and `statfs` `f_type` of a directory, for the `EXDEV` pre-flight
 /// and the mountpoint check.
 #[allow(clippy::unnecessary_cast)]

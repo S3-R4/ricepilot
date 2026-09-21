@@ -2,4 +2,4 @@
 source: tests/cli.rs
 expression: r.stderr
 ---
-ricepilot: refusing: no manifest has been recorded for `bare` yet, so there is nothing to compare against. one is recorded each time ricepilot switches to a profile (<HOME>/.local/state/ricepilot/manifests/bare.toml) [R7]
+ricepilot: refusing: no manifest has been recorded for `bare` yet, so there is nothing to compare against. one is recorded when ricepilot captures a profile and each time it switches to one (<HOME>/.local/state/ricepilot/manifests/bare.toml) [R7]

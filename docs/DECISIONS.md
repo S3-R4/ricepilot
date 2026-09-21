@@ -767,3 +767,61 @@ The same reasoning is why every directory is `mkdirat`ed fresh and every file
 is opened `O_CREAT | O_EXCL`: a copy interrupted by a crash rather than by a
 refusal *does* leave a partial tree, and the next attempt must be a refusal
 naming it rather than something that quietly writes over the evidence.
+
+## D45 — `capture` stages the profile outside `profiles/` and has no journal
+
+*M4.* Two decisions, and they are the same decision seen from two sides.
+
+**Staging.** The obvious implementation copies straight into
+`profiles/<name>/` and writes `profile.toml` last. But `paths::load_all`
+reports a profile directory with no readable `profile.toml` as an *error*
+rather than skipping it — deliberately, because a half-written profile is
+worth knowing about — so an interrupted capture would make every later
+`ricepilot list` fail, and R2 means there is no delete to clear it with.
+
+So the profile is built at `data/staging/<name>-<id>/` and moved into place
+with one `rename`. Before that rename there is no profile `<name>`; after it
+there is a complete one, manifest included. An interrupted capture leaves a
+directory under `data/staging/` that nothing reads and the report names.
+
+**No journal.** R4 requires a fsync'd write-ahead journal before the first
+effect, and it is worth being explicit about why `capture` has none rather
+than letting the absence look like an oversight. A journal exists so that a
+mutation to the **live machine** which was interrupted can be finished or
+abandoned by observing reality (D23, D24). `capture` makes no mutation to the
+live machine at all: it reads live directories, writes inside ricepilot's own
+data directory, and its single externally visible step is that one atomic
+rename. There is no intermediate state for `recover` to resolve, and a
+journal describing one would be a record of something `recover` could not act
+on.
+
+`adopt` is the opposite case and gets a journal record of its own (D46).
+
+## D46 — `adopt` gets a third journal record type rather than a bent `Entry`
+
+*M4.* `journal::Entry` models a destination **by its link target**:
+`old_target` and `new_target` are path strings, `slot_of` asks
+`mutate::link_target`, and a destination that is a real directory comes back
+as `Slot::Foreign("not a symlink")`, which `side_of` turns into a refusal. So
+an `adopt` journalled with `Entry` would be unrecoverable by construction —
+`recover` would refuse the very state `adopt` is designed to pass through.
+
+Retirement hit the same wall in M3 and the answer was `journal::Retire`: a
+second record type with its own two states and its own arm in `actions_for`,
+rather than an `Entry` bent until it fit. `adopt` gets the third,
+`journal::Adopt`, for the same reason and with the same shape.
+
+Its pre-state is identified by `(dev, ino)` rather than by a target string,
+because a real directory has no target. That keeps D24's requirement intact —
+the two states must be distinguishable by reading the filesystem — and makes
+the "old" side *stronger* evidence than a link target is: a directory that an
+installer removed and recreated between the journal and the crash has a
+different inode, so recovery refuses it rather than moving someone else's
+directory into the attic.
+
+The alternative — teaching `Entry` about `(dev, ino)` — would have put a field
+that is meaningless for four of the five shapes into the record every switch
+writes, and would have made `side_of`'s refusal for a real directory
+conditional on which command wrote the journal. That refusal is load-bearing
+for `switch`: a real directory at a managed destination is the signature of an
+installer having run, and `switch` must keep refusing it.

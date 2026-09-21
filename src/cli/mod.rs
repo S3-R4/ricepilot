@@ -4,6 +4,7 @@
 //!
 //! Implemented in M1 (read-only commands) and M5 (the rest).
 
+pub mod capture;
 pub mod paths;
 pub mod render;
 pub mod switch;
@@ -36,9 +37,14 @@ pub enum Command {
     List,
     /// Show one profile's manifest as ricepilot understands it.
     Show { profile: String },
-    /// Copy a live directory into a new profile. Does not activate it.
+    /// Copy live directories into a new profile. Does not activate it.
     Capture {
         profile: String,
+        /// A live directory to capture. Repeat it for each one. ricepilot
+        /// manages what a manifest names and never what it merely found, so
+        /// there is no discovery here and no default.
+        #[arg(long = "from")]
+        from: Vec<std::path::PathBuf>,
         #[arg(long)]
         commit: bool,
     },
@@ -143,6 +149,11 @@ pub fn run(command: Command) -> Result<Output> {
             relogin,
             strict,
         } => cmd_switch(&paths, &profile, commit, relogin, strict),
+        Command::Capture {
+            profile,
+            from,
+            commit,
+        } => capture::run(&paths, &profile, &from, commit),
 
         // Mutating commands and the remaining read-only ones arrive in later
         // milestones. Saying so and exiting non-zero is the honest answer;
@@ -151,8 +162,8 @@ pub fn run(command: Command) -> Result<Output> {
             anchor: "not-yet-implemented",
             why: format!(
                 "`{}` is not implemented yet; M1 ships the read-only commands \
-                 plan, status, list and show, M2 adds recover, and M3 adds switch, \
-                 rollback, verify and rescue",
+                 plan, status, list and show, M2 adds recover, M3 adds switch, \
+                 rollback, verify and rescue, and M4 adds capture, adopt and init",
                 subcommand_name(&other)
             ),
         }),
@@ -271,7 +282,8 @@ fn cmd_verify(paths: &paths::Paths, name: &str) -> Result<Output> {
             path: recorded_path,
             why: format!(
                 "no manifest has been recorded for `{name}` yet, so there is nothing to compare \
-                 against. one is recorded each time ricepilot switches to a profile"
+                 against. one is recorded when ricepilot captures a profile and each time it \
+                 switches to one"
             ),
         });
     };

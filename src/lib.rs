@@ -23,6 +23,7 @@ pub mod observe;
 pub mod ops;
 pub mod plan;
 pub mod rescue;
+pub mod survey;
 pub mod verify;
 
 pub use error::{Error, Result};

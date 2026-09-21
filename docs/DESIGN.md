@@ -259,6 +259,14 @@ parsing the report (see [DECISIONS.md](DECISIONS.md) D34).
 Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
 `adopt`, `switch` (`--relogin`, `--strict`), `rollback`, `recover`, `gc`.
 
+* `capture <profile> --from <dir>…` copies live directories into a new
+  profile and writes its manifest. It activates nothing: no link is created,
+  no ledger row is written, no live path changes. Each copy is compared
+  against its original with a blake3 manifest before the profile exists, the
+  profile is assembled at a staging name and moved into place with one
+  rename, and there is no journal because there is no live mutation to
+  recover ([DECISIONS.md](DECISIONS.md) D45).
+
 * `init` registers the live rice **by reference**, adopts the existing
   directory links only after explicit per-path confirmation, and takes a
   baseline copy (a copy, never a move) preserving modes, symlinks-as-symlinks
