@@ -10,5 +10,7 @@ profiles:  1
 owned:     2 path(s)
              <HOME>/.config/foot -> <HOME>/rice/caelestia/foot (caelestia)
              <HOME>/.config/hypr -> <HOME>/rice/caelestia/hypr (caelestia)
+generation: none — ricepilot has not switched anything on this machine
 
-generations and drift reporting are not implemented yet (milestone M3).
+drift reporting at switch time is not implemented yet (milestone M5); `ricepilot verify <profile>`
+compares a profile against the manifest its switch recorded.

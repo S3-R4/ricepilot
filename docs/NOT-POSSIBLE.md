@@ -66,6 +66,15 @@ observed and reported but not managed.
 itemising exactly what it would remove and requiring the operator to type the
 attic directory's name back.
 
+This reaches the user most visibly in `rollback`. A switch onto a destination
+that was *absent* creates a link there with a single `symlinkat`, and undoing
+that would mean making the path absent again — a removal. So the link is
+**retired**: renamed into the attic, leaving the destination empty. The
+observable effect is the one the user expected (nothing at that path), plus a
+line saying where the link went. `rollback` names every retired path rather
+than letting the user assume a deletion happened
+([DECISIONS.md](DECISIONS.md) D36).
+
 ## cross-device
 
 **Declined:** any operation that would need to rename across an `st_dev`

@@ -1,0 +1,25 @@
+---
+source: tests/cli_rollback.rs
+expression: undate(&r.stdout)
+---
+rollback: to generation 0000 (`(the state before the first switch)`)
+
+observed:
+  owned link     <HOME>/.config/foot
+  owned link     <HOME>/.config/hypr
+  owned link     <HOME>/.config/btop  (no longer managed after this)
+
+would apply 9 operation(s):
+  stage link   <HOME>/.config/foot.rp-tmp-0 -> <HOME>/rice/old/foot
+  stage link   <HOME>/.config/hypr.rp-tmp-1 -> <HOME>/rice/old/hypr
+  exchange     <HOME>/.config/foot <-> <HOME>/.config/foot.rp-tmp-0
+  exchange     <HOME>/.config/hypr <-> <HOME>/.config/hypr.rp-tmp-1
+  to attic     <HOME>/.config/foot.rp-tmp-0 -> <attic><HOME>/.config/foot
+  to attic     <HOME>/.config/hypr.rp-tmp-1 -> <attic><HOME>/.config/hypr
+  to attic     <HOME>/.config/btop -> <attic><HOME>/.config/btop
+  fsync dir    <HOME>/.config
+  fsync dir    <HOME>/.local/state/ricepilot/attic/<TS>-1
+
+nothing has been changed. re-run with --commit to apply.
+a switch is an on-disk relink: it takes effect at the next login and does not touch
+the running session.

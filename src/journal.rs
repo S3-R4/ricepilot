@@ -318,6 +318,40 @@ pub fn timestamp_id(at: std::time::SystemTime) -> String {
     )
 }
 
+/// A [`timestamp_id`] that is not already taken, in either the journal
+/// directory or the attic.
+///
+/// Two switches in the same second would otherwise share an id, and the second
+/// one's `done-<id>.toml` would collide with the first's — `rename_within`
+/// refuses to replace an existing file (correctly), so the switch would fail
+/// *after* having applied every one of its effects. A test found this by
+/// rolling back immediately after a switch, which is exactly what a user does
+/// when a rice turns out to be wrong.
+///
+/// The suffix keeps the journal and the attic directory named after each
+/// other, which is what makes them findable from one another (D40).
+pub fn unique_id(state: &Path, base: &str) -> Result<String> {
+    let taken = |id: &str| -> Result<bool> {
+        let journal = state.join("journal").join(format!("done-{id}.toml"));
+        let attic = state.join("attic").join(id);
+        Ok(read::lstat_or_absent(&journal)?.is_some() || read::lstat_or_absent(&attic)?.is_some())
+    };
+    if !taken(base)? {
+        return Ok(base.to_string());
+    }
+    for n in 1..1000u32 {
+        let candidate = format!("{base}-{n}");
+        if !taken(&candidate)? {
+            return Ok(candidate);
+        }
+    }
+    Err(Error::Refused {
+        rule: "R4",
+        path: state.join("journal"),
+        why: format!("no free switch id beside {base} after 1000 attempts"),
+    })
+}
+
 /// Howard Hinnant's `civil_from_days`. Written out rather than pulled in as a
 /// dependency: it is fifteen lines, it is exact, and a date library is a lot
 /// of surface area to add to a tool whose only use for a date is naming a

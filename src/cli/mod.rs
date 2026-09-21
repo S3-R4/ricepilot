@@ -136,6 +136,7 @@ pub fn run(command: Command) -> Result<Output> {
         Command::Recover { commit } => cmd_recover(&paths, commit).map(Output::from),
         Command::Verify { profile } => cmd_verify(&paths, &profile),
         Command::Rescue => cmd_rescue(&paths).map(Output::from),
+        Command::Rollback { commit } => cmd_rollback(&paths, commit),
         Command::Switch {
             profile,
             commit,
@@ -151,7 +152,7 @@ pub fn run(command: Command) -> Result<Output> {
             why: format!(
                 "`{}` is not implemented yet; M1 ships the read-only commands \
                  plan, status, list and show, M2 adds recover, and M3 adds switch, \
-                 verify and rescue",
+                 rollback, verify and rescue",
                 subcommand_name(&other)
             ),
         }),
@@ -220,7 +221,16 @@ fn cmd_show(paths: &paths::Paths, name: &str) -> Result<String> {
 fn cmd_status(paths: &paths::Paths) -> Result<String> {
     let profiles = paths::load_all(paths)?;
     let ledger = crate::ledger::load(&paths.ledger_path())?;
-    Ok(render::status(paths, &profiles, &ledger))
+    let generation = match crate::generations::current(&paths.state)? {
+        Some(id) => Some(crate::generations::load(&paths.state, id)?),
+        None => None,
+    };
+    Ok(render::status(
+        paths,
+        &profiles,
+        &ledger,
+        generation.as_ref(),
+    ))
 }
 
 fn cmd_plan(paths: &paths::Paths, name: &str) -> Result<String> {
@@ -358,6 +368,66 @@ fn cmd_switch(
         targets,
         retire,
         manifest_of: Some((root, profile.manifest.volatile.clone())),
+    };
+    switch::run(paths, &req, commit)
+}
+
+/// `ricepilot rollback [--commit]`.
+///
+/// Re-applies generation `NNNN-1` through [`switch::run`] — the same lock, the
+/// same pre-flight, the same journal, the same recovery story. The only thing
+/// that differs from a `switch` is where the target state comes from, which is
+/// why it is an argument rather than a second implementation.
+fn cmd_rollback(paths: &paths::Paths, commit: bool) -> Result<Output> {
+    let state = &paths.state;
+    let Some(current) = crate::generations::current(state)? else {
+        return Err(Error::Refused {
+            rule: "R7",
+            path: crate::generations::current_path(state),
+            why: "there is no generation to roll back from: ricepilot has not switched anything \
+                  on this machine"
+                .into(),
+        });
+    };
+    if current == 0 {
+        return Err(Error::Refused {
+            rule: "R7",
+            path: crate::generations::path(state, 0),
+            why: "generation 0000 is the state ricepilot found before it switched anything. \
+                  there is nothing before it to go back to"
+                .into(),
+        });
+    }
+
+    let previous = current - 1;
+    let to = crate::generations::load(state, previous)?;
+    let targets = to.targets();
+
+    // Everything ricepilot owns that generation NNNN-1 did not have a link at.
+    // These are displaced into the attic rather than removed (D36) — including
+    // a link the forward switch created at a destination that was absent,
+    // which is the case D21 left open.
+    let ledger = crate::ledger::load(&paths.ledger_path())?;
+    let retire: Vec<std::path::PathBuf> = ledger
+        .owned_dests()
+        .into_iter()
+        .filter(|d| !targets.iter().any(|t| &t.dest == d))
+        .collect();
+
+    // Generation 0000 belongs to no profile ricepilot registered, so there is
+    // no single tree to hash. Recording a manifest of "wherever those links
+    // happen to point" would be a manifest of nothing in particular.
+    let manifest_of = paths::load(paths, &to.profile)
+        .ok()
+        .map(|p| (p.root(&paths.home), p.manifest.volatile.clone()));
+
+    let req = switch::Request {
+        kind: switch::Kind::Rollback,
+        label: format!("to generation {previous:04} (`{}`)", to.profile),
+        profile: to.profile.clone(),
+        targets,
+        retire,
+        manifest_of,
     };
     switch::run(paths, &req, commit)
 }

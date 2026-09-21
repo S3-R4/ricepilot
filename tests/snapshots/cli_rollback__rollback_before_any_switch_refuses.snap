@@ -1,0 +1,5 @@
+---
+source: tests/cli_rollback.rs
+expression: r.stderr
+---
+ricepilot: refusing: there is no generation to roll back from: ricepilot has not switched anything on this machine (<HOME>/.local/state/ricepilot/generations/current) [R7]

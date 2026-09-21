@@ -636,3 +636,48 @@ So the probe is the first thing after the commit gate. Nothing before that
 point needs the answer: the plan is the same value in either mode (D19), and
 only the journal records which one was used. A test asserts that a dry run
 leaves not even `.rp-probe-a` behind.
+
+## D40 — A switch id is unique, not merely a timestamp
+
+*M3.* The journal id and the attic directory share one name so each is
+findable from the other. That name was `timestamp_id`, to the second — and
+`rollback --commit` immediately after `switch --commit` is not an unusual
+thing to do, it is what a person does when a rice turns out to be wrong.
+
+Two switches in the same second produced the same id, so the second one's
+`done-<id>.toml` collided with the first's. `rename_within` refuses to replace
+an existing file, which is correct, so the switch failed **after applying
+every one of its effects** — the worst possible place for it to fail, and a
+test found it on the first try.
+
+`journal::unique_id` appends `-1`, `-2` … until neither `journal/done-<id>.toml`
+nor `attic/<id>` is taken. The id stays readable (`gc` makes the operator type
+an attic directory's name back, and `20260921T092114Z-1` is still something a
+person can check they typed), and the journal and the attic keep naming each
+other.
+
+## D41 — Rolling back to generation 0000 says what that generation is
+
+*M3.* Generation `0000` is the topology ricepilot **found**, before it switched
+anything. On the target machine those links point into the caelestia clone —
+which is also profile `caelestia`'s root — so it is tempting to label the
+generation with that profile's name.
+
+It is not labelled that way. ricepilot did not create those links and has no
+record saying it did; that is precisely why the ownership predicate would
+call them foreign. Inferring a profile name from where a link happens to point
+is exactly the reasoning the predicate exists to forbid, and doing it in a
+label rather than in a decision does not make it sounder — it makes it
+invisible.
+
+So generation `0000`'s profile reads `(the state before the first switch)`,
+`rollback` to it says so in its heading, and the ledger rows it writes carry
+that string. It is uglier than a profile name and it is what is true. A
+`rollback` heading that read "to profile `caelestia`" would be telling the
+user that ricepilot is putting back something it had recorded, when what it is
+really doing is re-creating a shape it once observed.
+
+The practical consequence: rolling back to `0000` records no blake3 manifest,
+because there is no single registered tree to hash. `verify` says plainly that
+nothing has been recorded rather than comparing against a manifest of
+"wherever those links happen to point".

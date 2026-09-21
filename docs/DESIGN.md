@@ -160,7 +160,15 @@ POST observation; regenerate `rescue.sh`; print the relogin notice with the
 exact commands.
 
 `rollback` re-applies generation `NNNN-1` through this same path — it is not a
-separate, less-tested code path. `recover` replays the journal by **observing
+separate, less-tested code path. `src/cli/switch.rs` takes the target state,
+the destinations to retire and the wording as arguments, and `switch` and
+`rollback` differ in nothing else. A rollback is itself a generation: history
+is kept, not rewound, so rolling back twice returns to where you started.
+
+Rolling back to generation `0000` — the topology ricepilot found before it
+switched anything — is labelled as that rather than as a profile name, and
+records no blake3 manifest, because there is no registered tree to hash
+([DECISIONS.md](DECISIONS.md) D41). `recover` replays the journal by **observing
 reality** and deciding per destination whether it is old or new; it never
 blindly re-runs recorded steps. Its direction is decided once for the whole
 switch and there are only two of them (D23): forward if any destination is

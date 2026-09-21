@@ -122,7 +122,13 @@ pub fn run_with(
     let dests = req.dests();
     let observed = observe::observe(&dests, &ownership)?;
 
-    let id = journal::timestamp_id(std::time::SystemTime::now());
+    // Unique, not merely time-based: a rollback immediately after a switch is
+    // the ordinary case, and two switches in the same second must not share an
+    // id (D40).
+    let id = journal::unique_id(
+        &paths.state,
+        &journal::timestamp_id(std::time::SystemTime::now()),
+    )?;
     let attic = paths.attic_dir().join(&id);
     let attic_dev = read::dev_of_nearest_existing_ancestor(&paths.attic_dir())?;
     let ctx = plan::PlanContext::new(paths.home.clone(), attic.clone(), attic_dev)

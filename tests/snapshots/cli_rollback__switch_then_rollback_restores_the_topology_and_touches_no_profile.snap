@@ -1,0 +1,41 @@
+---
+source: tests/cli_rollback.rs
+expression: undate(&r.stdout)
+---
+rollback: to generation 0000 (`(the state before the first switch)`)
+
+observed:
+  owned link     <HOME>/.config/foot
+  owned link     <HOME>/.config/hypr
+  owned link     <HOME>/.config/btop  (no longer managed after this)
+
+applying 9 operation(s):
+  stage link   <HOME>/.config/foot.rp-tmp-0 -> <HOME>/rice/old/foot
+  stage link   <HOME>/.config/hypr.rp-tmp-1 -> <HOME>/rice/old/hypr
+  exchange     <HOME>/.config/foot <-> <HOME>/.config/foot.rp-tmp-0
+  exchange     <HOME>/.config/hypr <-> <HOME>/.config/hypr.rp-tmp-1
+  to attic     <HOME>/.config/foot.rp-tmp-0 -> <attic><HOME>/.config/foot
+  to attic     <HOME>/.config/hypr.rp-tmp-1 -> <attic><HOME>/.config/hypr
+  to attic     <HOME>/.config/btop -> <attic><HOME>/.config/btop
+  fsync dir    <HOME>/.config
+  fsync dir    <HOME>/.local/state/ricepilot/attic/<TS>-1
+
+applied. this is generation 0002.
+
+displaced links are in:
+  <HOME>/.local/state/ricepilot/attic/<TS>-1
+nothing was removed.
+
+1 destination(s) are no longer managed. ricepilot cannot make a path absent —
+that would be a deletion — so their links were moved into the attic above:
+  <HOME>/.config/btop
+
+to undo this:
+  ricepilot rollback --commit            re-applies generation 0001
+  sh <HOME>/.local/state/ricepilot/rescue.sh   the same thing, from a TTY, without ricepilot
+
+this changed the filesystem, not the running session. log out and back in to see it:
+  uwsm stop
+
+never `hyprctl dispatch exit` and never kill Hyprland — `uwsm stop` is the clean
+logout. if the session does not come back, TTY F2–F6 and run the rescue script above.

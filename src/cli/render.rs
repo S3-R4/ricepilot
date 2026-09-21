@@ -157,7 +157,12 @@ pub fn show(name: &str, m: &Manifest, root: &Path, home: &Path) -> String {
 /// `ricepilot status`. Reports what it observed, not what a manifest claims
 /// (`SAFETY.md` R7), and says plainly which parts are not built yet rather
 /// than printing a reassuring blank.
-pub fn status(paths: &Paths, profiles: &[Profile], ledger: &crate::ledger::Ledger) -> String {
+pub fn status(
+    paths: &Paths,
+    profiles: &[Profile],
+    ledger: &crate::ledger::Ledger,
+    generation: Option<&crate::generations::Generation>,
+) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "home:      {}", paths.home.display());
     let _ = writeln!(s, "data:      {}", paths.data.display());
@@ -183,10 +188,30 @@ pub fn status(paths: &Paths, profiles: &[Profile], ledger: &crate::ledger::Ledge
             );
         }
     }
+    match generation {
+        Some(g) => {
+            let _ = writeln!(
+                s,
+                "generation: {:04} — `{}`, switched {}",
+                g.id, g.profile, g.created
+            );
+        }
+        None => {
+            let _ = writeln!(
+                s,
+                "generation: none — ricepilot has not switched anything on this machine"
+            );
+        }
+    }
     let _ = writeln!(s);
     let _ = writeln!(
         s,
-        "generations and drift reporting are not implemented yet (milestone M3)."
+        "drift reporting at switch time is not implemented yet (milestone M5); \
+         `ricepilot verify <profile>`"
+    );
+    let _ = writeln!(
+        s,
+        "compares a profile against the manifest its switch recorded."
     );
     s
 }
