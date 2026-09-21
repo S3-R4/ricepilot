@@ -543,6 +543,11 @@ pub struct Status {
 pub struct Recovery {
     pub id: String,
     pub profile: String,
+    /// Whether the interrupted operation was an `adopt`. It changes nothing
+    /// about what recovery does and everything about what it says: an adopt
+    /// displaces a real directory, and telling someone their *switch* was
+    /// interrupted would send them looking for one that never happened.
+    pub adopting: bool,
     pub direction: Direction,
     pub statuses: Vec<Status>,
     pub actions: Vec<Action>,
@@ -1090,6 +1095,7 @@ pub fn plan_recovery(j: &Journal) -> Result<Recovery> {
     Ok(Recovery {
         id: j.id.clone(),
         profile: j.profile.clone(),
+        adopting: !j.adopt.is_empty(),
         direction,
         statuses,
         actions,

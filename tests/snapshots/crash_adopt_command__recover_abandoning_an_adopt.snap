@@ -1,0 +1,20 @@
+---
+source: tests/crash_adopt_command.rs
+expression: "common::undate(&common::redact(&String::from_utf8_lossy(&out.stdout), &m.f))"
+---
+recover: an interrupted adopt into profile `mine` (<TS>)
+
+observed:
+  old            <HOME>/.config/hypr
+
+direction: backward — no exchange had happened, so the adopt never started. Your directory is
+            untouched and stays where it is; the staged link goes to the attic. The copy
+            already made inside the profile is left alone — it is a copy, and ricepilot
+            removes nothing.
+
+would apply 3 operation(s):
+  to attic     <HOME>/.config/hypr.rp-tmp-0 -> <attic><HOME>/.config/hypr.staged
+  fsync dir    <HOME>/.config
+  fsync dir    <HOME>/.local/state/ricepilot/attic/<TS>
+
+nothing has been changed. re-run with --commit to carry this out.

@@ -148,6 +148,34 @@ fn describe(m: &adopting::Machine) -> String {
     )
 }
 
+/// What `recover` tells a user whose adopt was interrupted. The wording is
+/// the part of this they meet on a machine that is already going wrong, so
+/// it is reviewed rather than left to chance — once from each direction,
+/// since the two say opposite things about what is about to happen.
+#[test]
+fn what_recover_says_about_an_interrupted_adopt() {
+    for (case, k, name) in [
+        ("recover_says_backward", 0, "recover_abandoning_an_adopt"),
+        ("recover_says_forward", 1, "recover_finishing_an_adopt"),
+    ] {
+        crash(case, k);
+        let m = adopting::attach(case);
+
+        let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("ricepilot"));
+        cmd.arg("recover");
+        cmd.env_clear();
+        for (key, value) in m.f.env() {
+            cmd.env(key, value);
+        }
+        let out = cmd.output().unwrap();
+        assert_eq!(out.status.code().unwrap(), 0);
+        insta::assert_snapshot!(
+            name,
+            common::undate(&common::redact(&String::from_utf8_lossy(&out.stdout), &m.f))
+        );
+    }
+}
+
 /// Recovery is idempotent: a second run finds the destination already where
 /// the first drove it and says there is nothing in flight.
 #[test]

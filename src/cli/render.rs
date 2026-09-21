@@ -224,13 +224,24 @@ pub const NOTHING_TO_RECOVER: &str = "no switch is in flight: there is no journa
 
 /// Why recovery is going the way it is going. There are only two directions
 /// and no third outcome (`SAFETY.md` R5), so both are spelled out.
-fn direction_note(d: Direction) -> &'static str {
-    match d {
-        Direction::Forward => {
+fn direction_note(d: Direction, adopting: bool) -> &'static str {
+    match (d, adopting) {
+        (Direction::Forward, true) => {
+            "forward — the link is already in place, so finishing is the only outcome that \
+             does not\n           undo something already in effect. what remains is moving \
+             your directory into\n           the attic, where it stays readable."
+        }
+        (Direction::Backward, true) => {
+            "backward — no exchange had happened, so the adopt never started. Your directory \
+             is\n            untouched and stays where it is; the staged link goes to the \
+             attic. The copy\n            already made inside the profile is left alone — it \
+             is a copy, and ricepilot\n            removes nothing."
+        }
+        (Direction::Forward, false) => {
             "forward — at least one destination is already switched, so finishing is the only \
              outcome\n           that does not undo something already in effect."
         }
-        Direction::Backward => {
+        (Direction::Backward, false) => {
             "backward — no exchange had happened yet, so the switch never started. The staged \
              links\n            go to the attic; nothing that was live is touched."
         }
@@ -244,8 +255,14 @@ pub fn recover(r: &Recovery, committed: bool) -> String {
     let mut s = String::new();
     let _ = writeln!(
         s,
-        "recover: an interrupted switch to profile `{}` ({})",
-        r.profile, r.id
+        "recover: an interrupted {} profile `{}` ({})",
+        if r.adopting {
+            "adopt into"
+        } else {
+            "switch to"
+        },
+        r.profile,
+        r.id
     );
     let _ = writeln!(s);
 
@@ -254,7 +271,7 @@ pub fn recover(r: &Recovery, committed: bool) -> String {
         let _ = writeln!(s, "  {:<14} {}", st.side.as_str(), st.dest.display());
     }
     let _ = writeln!(s);
-    let _ = writeln!(s, "direction: {}", direction_note(r.direction));
+    let _ = writeln!(s, "direction: {}", direction_note(r.direction, r.adopting));
     let _ = writeln!(s);
 
     if r.actions.is_empty() {
@@ -287,7 +304,14 @@ pub fn recover(r: &Recovery, committed: bool) -> String {
             let _ = writeln!(s);
             let _ = writeln!(
                 s,
-                "the switch took effect on disk. it reaches the session at the next login."
+                "{}",
+                if r.adopting {
+                    "the adopt took effect on disk. it reaches the session at the next login, \
+                     and your
+original directory is in the attic above."
+                } else {
+                    "the switch took effect on disk. it reaches the session at the next login."
+                }
             );
         }
     } else {
