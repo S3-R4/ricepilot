@@ -115,6 +115,20 @@ pub enum Refusal {
         file: PathBuf,
         detail: String,
     },
+    /// The profile tree the link would point at is not there. A switch that
+    /// created it anyway would leave a dangling link at a managed
+    /// destination — which, for `~/.config/hypr`, means a compositor with no
+    /// configuration at the next login.
+    SourceMissing {
+        dest: PathBuf,
+        src: PathBuf,
+    },
+    /// The source exists and is not a directory. v1 activates directory links
+    /// only, and a link pointing at a regular file is not one.
+    SourceNotADirectory {
+        dest: PathBuf,
+        src: PathBuf,
+    },
     /// A declared destination that phase A did not observe. A bug rather than
     /// a user error, but the decision table is total and so is this enum:
     /// planning on an incomplete observation is never allowed to proceed.
@@ -130,8 +144,11 @@ impl Refusal {
             Refusal::Unowned { .. }
             | Refusal::RealDirAtDest { .. }
             | Refusal::Denylisted { .. }
+            | Refusal::SourceMissing { .. }
             | Refusal::NotObserved { .. } => "R4",
-            Refusal::RealFileAtDest { .. } | Refusal::VerifyConfigFailed { .. } => "R5",
+            Refusal::RealFileAtDest { .. }
+            | Refusal::SourceNotADirectory { .. }
+            | Refusal::VerifyConfigFailed { .. } => "R5",
             Refusal::CrossDevice { .. }
             | Refusal::Mountpoint { .. }
             | Refusal::NestedDest { .. }
@@ -199,6 +216,21 @@ impl fmt::Display for Refusal {
                 "{}: did not parse in a sandboxed verify-config run: {detail}",
                 file.display()
             ),
+            Refusal::SourceMissing { dest, src } => write!(
+                f,
+                "{}: would be linked to {}, which does not exist. ricepilot will not point a \
+                 managed destination at nothing — a dangling link here is a missing config at \
+                 the next login, and it would look exactly like a successful switch.",
+                dest.display(),
+                src.display()
+            ),
+            Refusal::SourceNotADirectory { dest, src } => write!(
+                f,
+                "{}: would be linked to {}, which is not a directory. v1 activates directory \
+                 links only.",
+                dest.display(),
+                src.display()
+            ),
             Refusal::NotObserved { dest } => write!(
                 f,
                 "{}: was declared but not observed. ricepilot will not plan against an incomplete \
@@ -230,6 +262,24 @@ pub struct Target {
     pub src: PathBuf,
 }
 
+/// What is at a target's `src`, as one `lstat` found it.
+///
+/// A fact, not a lookup: gathering it is IO and using it is not, which is what
+/// keeps [`plan`] pure — the same division [`PlanContext::missing_requires`]
+/// already uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceState {
+    Dir,
+    Missing,
+    NotADir,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceFact {
+    pub src: PathBuf,
+    pub state: SourceState,
+}
+
 /// The facts a plan needs that are not per-destination. All of them are
 /// *data*: gathering them is IO, using them is not, which is what keeps
 /// [`plan`] pure.
@@ -245,6 +295,10 @@ pub struct PlanContext {
     /// Packages `pacman -Q` could not find (M5 fills this; M1 leaves it
     /// empty).
     pub missing_requires: Vec<String>,
+    /// What is at each target's `src`. A target whose `src` has no fact here is
+    /// not checked — M1's planner tests predate the check and supply none —
+    /// but every caller that can act supplies one per target (D42).
+    pub sources: Vec<SourceFact>,
     /// Destinations ricepilot owns that the target state does **not** include,
     /// and which are therefore displaced into the attic by this switch.
     ///
@@ -266,8 +320,15 @@ impl PlanContext {
             attic: attic.into(),
             attic_dev,
             missing_requires: Vec::new(),
+            sources: Vec::new(),
             retire: Vec::new(),
         }
+    }
+
+    /// What is at each target's `src`, read by the caller.
+    pub fn with_sources(mut self, sources: Vec<SourceFact>) -> Self {
+        self.sources = sources;
+        self
     }
 
     /// The destinations this switch stops owning.
@@ -389,6 +450,27 @@ pub fn plan(observed: &[Observed], target: &[Target], ctx: &PlanContext) -> Plan
                 dest: t.dest.clone(),
             });
             continue;
+        }
+
+        // What the link would point at. Checked before the destination's shape
+        // because it is true regardless of it: a dangling link is wrong
+        // whether it replaces an owned link or is created where nothing was.
+        match ctx.sources.iter().find(|s| s.src == t.src).map(|s| s.state) {
+            Some(SourceState::Missing) => {
+                refusals.push(Refusal::SourceMissing {
+                    dest: t.dest.clone(),
+                    src: t.src.clone(),
+                });
+                continue;
+            }
+            Some(SourceState::NotADir) => {
+                refusals.push(Refusal::SourceNotADirectory {
+                    dest: t.dest.clone(),
+                    src: t.src.clone(),
+                });
+                continue;
+            }
+            Some(SourceState::Dir) | None => {}
         }
 
         match &obs.shape {

@@ -1,0 +1,14 @@
+---
+source: tests/cli_switch.rs
+expression: undate(&r.stdout)
+---
+switch: to profile `new`
+
+observed:
+  owned link     <HOME>/.config/hypr
+  owned link     <HOME>/.config/foot
+  absent         <HOME>/.config/btop
+
+declined. nothing has been changed.
+
+  [R4] <HOME>/.config/hypr: would be linked to <HOME>/rice/new/hypr, which does not exist. ricepilot will not point a managed destination at nothing — a dangling link here is a missing config at the next login, and it would look exactly like a successful switch.

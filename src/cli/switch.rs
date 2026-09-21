@@ -76,6 +76,36 @@ impl Request {
     }
 }
 
+/// Read what is at each target's `src`, so the planner can refuse a link that
+/// would dangle without doing any IO itself.
+///
+/// This is the one pre-flight that is about the *profile* rather than about
+/// the destination, and it is the difference between a switch that fails and a
+/// switch that succeeds into a session with no configuration.
+pub fn source_facts(targets: &[Target]) -> Result<Vec<plan::SourceFact>> {
+    let mut out = Vec::new();
+    for t in targets {
+        if out.iter().any(|f: &plan::SourceFact| f.src == t.src) {
+            continue;
+        }
+        let state = match read::lstat_or_absent(&t.src)? {
+            None => plan::SourceState::Missing,
+            Some(m) if m.kind == read::Kind::Dir => plan::SourceState::Dir,
+            // A symlink to a directory is deliberately *not* a directory here.
+            // `lstat` does not follow it, and neither does ricepilot: pointing
+            // a managed destination at a link whose target it has never looked
+            // at is exactly the chain of trust the ownership predicate exists
+            // to refuse.
+            Some(_) => plan::SourceState::NotADir,
+        };
+        out.push(plan::SourceFact {
+            src: t.src.clone(),
+            state,
+        });
+    }
+    Ok(out)
+}
+
 /// Phase A, B and C.
 pub fn run(paths: &Paths, req: &Request, commit: bool) -> Result<Output> {
     run_with(paths, req, commit, &mut |_| Ok(()))
@@ -132,6 +162,7 @@ pub fn run_with(
     let attic = paths.attic_dir().join(&id);
     let attic_dev = read::dev_of_nearest_existing_ancestor(&paths.attic_dir())?;
     let ctx = plan::PlanContext::new(paths.home.clone(), attic.clone(), attic_dev)
+        .with_sources(source_facts(&req.targets)?)
         .retiring(req.retire.clone());
     let plan = plan::plan(&observed, &req.targets, &ctx);
 

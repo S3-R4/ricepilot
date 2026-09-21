@@ -681,3 +681,31 @@ The practical consequence: rolling back to `0000` records no blake3 manifest,
 because there is no single registered tree to hash. `verify` says plainly that
 nothing has been recorded rather than comparing against a manifest of
 "wherever those links happen to point".
+
+## D42 — The planner refuses a link that would dangle, and the source facts are data
+
+*M3.* Nothing in M1 or M2 checked what a target's `src` actually was. That was
+harmless while no command could act; it stops being harmless the moment
+`switch --commit` exists. A profile whose payload has moved, or which was
+registered by reference against a clone that has since been deleted, would
+produce a dangling link at every managed destination — and a dangling
+`~/.config/hypr` is a compositor with no configuration at the next login.
+
+Worse, it would look exactly like a successful switch. The tool would print
+"applied", the user would log out, and the first evidence of the problem would
+be a session that does not come up. That is precisely the failure this project
+exists to prevent, so it is a pre-flight refusal with the destination and the
+source both named.
+
+A source that exists and is **not a directory** is refused too, including a
+symlink to one. `lstat` does not follow it and neither does ricepilot: pointing
+a managed destination at a link whose target it has never looked at is the same
+chain of trust the ownership predicate refuses to extend.
+
+The facts are gathered by the caller and passed in as `PlanContext.sources`,
+exactly as `missing_requires` already is — gathering is IO, using is not, and
+`plan` stays pure. A target whose `src` has no fact is not checked, which keeps
+M1's planner tests (written before the check existed) meaningful rather than
+rewritten; both callers that can act supply one fact per target, and `plan` and
+`switch` therefore agree. A dry run that said it would work and a switch that
+then refused would be the worst of both.

@@ -248,7 +248,8 @@ fn cmd_plan(paths: &paths::Paths, name: &str) -> Result<String> {
     let observed = crate::observe::observe(&dests, &ownership)?;
     let attic = paths.attic_dir();
     let attic_dev = crate::ops::read::dev_of_nearest_existing_ancestor(&attic)?;
-    let ctx = crate::plan::PlanContext::new(paths.home.clone(), attic, attic_dev);
+    let ctx = crate::plan::PlanContext::new(paths.home.clone(), attic, attic_dev)
+        .with_sources(switch::source_facts(&targets)?);
     let plan = crate::plan::plan(&observed, &targets, &ctx);
 
     Ok(render::plan(&profile.name, &observed, &plan))

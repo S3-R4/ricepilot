@@ -175,6 +175,14 @@ fn every_refusal_message() {
             file: dest("hypr/hyprland.conf"),
             detail: "line 12: unknown keyword `bindd`".into(),
         },
+        Refusal::SourceMissing {
+            dest: dest("hypr"),
+            src: PathBuf::from("/home/u/.local/share/caelestia/hypr"),
+        },
+        Refusal::SourceNotADirectory {
+            dest: dest("hypr"),
+            src: PathBuf::from("/home/u/.local/share/caelestia/hypr"),
+        },
         Refusal::NotObserved { dest: dest("btop") },
     ];
     insta::assert_snapshot!(ricepilot::cli::render::refusal_list(&refusals));

@@ -253,3 +253,48 @@ fn a_second_ricepilot_exits_locked_rather_than_switching() {
 
     drop(held);
 }
+
+/// A profile whose payload is not there would link every managed destination
+/// at nothing. A dangling `~/.config/hypr` is a compositor with no config at
+/// the next login — and, without this refusal, it would look exactly like a
+/// successful switch.
+#[test]
+fn a_switch_onto_a_missing_profile_tree_is_refused() {
+    let m = switching::build("switch_missing_src");
+    m.f.clear("rice/new/hypr");
+    let before = m.live();
+
+    let r = run(&m.f, &["switch", "new", "--commit"]);
+    assert_eq!(r.code, ExitCode::Refused as i32);
+    insta::assert_snapshot!(undate(&r.stdout));
+
+    assert_eq!(m.live(), before, "and nothing was touched");
+}
+
+/// The same check refuses a source that exists and is not a directory —
+/// including a symlink to one. `lstat` does not follow it and neither does
+/// ricepilot: pointing a managed destination at a link whose target it has
+/// never looked at is the chain of trust the ownership predicate refuses.
+#[test]
+fn a_switch_onto_a_source_that_is_not_a_directory_is_refused() {
+    let m = switching::build("switch_src_not_dir");
+    m.f.clear("rice/new/foot");
+    m.f.file("rice/new/foot", "this is a file\n");
+
+    let r = run(&m.f, &["switch", "new", "--commit"]);
+    assert_eq!(r.code, ExitCode::Refused as i32);
+    assert!(r.stdout.contains("is not a directory"), "{}", r.stdout);
+    assert_eq!(m.live(), m.all_old());
+}
+
+/// `plan` sees it too, so the dry run and the switch agree — a plan that said
+/// it would work and a switch that refused would be the worst of both.
+#[test]
+fn plan_reports_the_same_missing_source() {
+    let m = switching::build("switch_plan_missing_src");
+    m.f.clear("rice/new/hypr");
+
+    let r = run(&m.f, &["plan", "new"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    assert!(r.stdout.contains("does not exist"), "{}", r.stdout);
+}

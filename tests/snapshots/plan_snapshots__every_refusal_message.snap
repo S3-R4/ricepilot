@@ -12,4 +12,6 @@ expression: "ricepilot::cli::render::refusal_list(&refusals)"
   [R4] /home/u/.config/quickshell/overview: is nested inside the managed destination /home/u/.config/quickshell. Switching both would make the inner one's meaning depend on the order of two renames.
   [R4] this profile requires packages that are not installed: hyprland, foot. ricepilot never installs anything; run: paru -S --needed hyprland foot
   [R5] /home/u/.config/hypr/hyprland.conf: did not parse in a sandboxed verify-config run: line 12: unknown keyword `bindd`
+  [R4] /home/u/.config/hypr: would be linked to /home/u/.local/share/caelestia/hypr, which does not exist. ricepilot will not point a managed destination at nothing — a dangling link here is a missing config at the next login, and it would look exactly like a successful switch.
+  [R5] /home/u/.config/hypr: would be linked to /home/u/.local/share/caelestia/hypr, which is not a directory. v1 activates directory links only.
   [R4] /home/u/.config/btop: was declared but not observed. ricepilot will not plan against an incomplete picture of the filesystem.
