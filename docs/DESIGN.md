@@ -161,6 +161,14 @@ touched directories; write generation `NNNN` and flip `current`; record the
 POST observation; regenerate `rescue.sh`; print the relogin notice with the
 exact commands.
 
+`adopt` shares phases A/B/C in shape but not in record: its destination is a
+real directory, which `journal::Entry` cannot describe, so it writes a
+`journal::Adopt` whose pre-state is the directory's `(dev, ino)`
+([DECISIONS.md](DECISIONS.md) D46). Recovery has an arm of its own for it,
+decided the same way — by reading the filesystem — and refuses a destination
+whose inode no longer matches rather than displacing a directory it never
+looked at.
+
 `rollback` re-applies generation `NNNN-1` through this same path — it is not a
 separate, less-tested code path. `src/cli/switch.rs` takes the target state,
 the destinations to retire and the wording as arguments, and `switch` and

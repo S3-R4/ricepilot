@@ -70,6 +70,38 @@ pub struct Retire {
     pub attic_rel: PathBuf,
 }
 
+/// A **real directory** being replaced by a link to a copy of itself: the
+/// one thing `adopt` does that no other command does (D46).
+///
+/// [`Entry`] cannot represent this. It models a destination by its link
+/// target, and a real directory has none — `slot_of` answers
+/// `Foreign("not a symlink")` and `side_of` turns that into a refusal, so an
+/// adopt journalled as an `Entry` would be unrecoverable by construction:
+/// `recover` would refuse the very state `adopt` exists to pass through.
+///
+/// So the pre-state is identified by `(dev, ino)` instead. That satisfies
+/// D24 — the two states are still told apart by reading the filesystem — and
+/// it is *stronger* evidence than a target string: a directory an installer
+/// removed and recreated between the journal and the crash has a different
+/// inode, and recovery then refuses rather than moving someone else's
+/// directory into the attic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Adopt {
+    pub dest: PathBuf,
+    /// Identity of the real directory, as the pre-flight observed it.
+    pub dir_dev: u64,
+    pub dir_ino: u64,
+    /// The sibling name the new link is staged at, so the exchange is a
+    /// same-directory rename.
+    pub staged: PathBuf,
+    /// The copy inside the profile that the new link points at.
+    pub new_target: PathBuf,
+    /// Where the displaced real directory lands inside the attic. It is
+    /// **moved**, never removed: this is the user's actual configuration.
+    pub attic_rel: PathBuf,
+}
+
 /// The record of one in-flight switch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,6 +122,12 @@ pub struct Journal {
     /// from an older ricepilot must stay recoverable by a newer one.
     #[serde(default)]
     pub retire: Vec<Retire>,
+    /// Real directories this operation is turning into links. `adopt` writes
+    /// exactly one; `switch` never writes any. `#[serde(default)]` for the
+    /// same reason `retire` has one: a journal written by an older ricepilot
+    /// must stay recoverable by a newer one.
+    #[serde(default)]
+    pub adopt: Vec<Adopt>,
     /// The plan as it was printed, for an auditor. Nothing reads this back —
     /// recovery uses `entries` — but "what did it say it would do" is the
     /// first question anyone asks of a machine that did not come back up.
@@ -187,8 +225,37 @@ impl Journal {
             exchange_mode: mode.as_str().to_string(),
             entries,
             retire,
+            adopt: Vec::new(),
             ops: ops.iter().map(|o| o.to_string()).collect(),
         })
+    }
+
+    /// The record of one `adopt`: no [`Entry`] and no [`Retire`], one
+    /// [`Adopt`].
+    ///
+    /// Built directly rather than derived from the ops, unlike
+    /// [`Journal::from_plan`]. The ops are still what gets executed and still
+    /// what is printed, but the fact recovery turns on — the identity of the
+    /// directory being displaced — is not in any op, and deriving the record
+    /// from the plan would mean inventing an op to carry it.
+    pub fn for_adopt(
+        id: impl Into<String>,
+        profile: impl Into<String>,
+        attic: impl Into<PathBuf>,
+        mode: ExchangeMode,
+        adopt: Adopt,
+        ops: &[Op],
+    ) -> Self {
+        Journal {
+            id: id.into(),
+            profile: profile.into(),
+            attic: attic.into(),
+            exchange_mode: mode.as_str().to_string(),
+            entries: Vec::new(),
+            retire: Vec::new(),
+            adopt: vec![adopt],
+            ops: ops.iter().map(|o| o.to_string()).collect(),
+        }
     }
 
     pub fn mode(&self) -> Result<ExchangeMode> {
@@ -560,6 +627,191 @@ fn retire_side(r: &Retire) -> Result<Side> {
     }
 }
 
+/// What one slot holds, as far as an [`Adopt`] is concerned.
+///
+/// The parallel of [`Slot`], and separate from it for the reason D46 gives:
+/// the pre-state here is a directory identified by its inode, not a link
+/// identified by its target, and one enum covering both would make every
+/// `Slot` match arm answer a question it does not have the facts for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DirSlot {
+    Absent,
+    /// The very directory the journal recorded, by `(dev, ino)`.
+    TheDir,
+    /// The new link, pointing at the copy inside the profile.
+    NewLink,
+    /// Anything else. Never acted on.
+    Foreign(String),
+}
+
+fn dir_slot_of(path: &Path, a: &Adopt) -> Result<DirSlot> {
+    Ok(match read::lstat(path)? {
+        None => DirSlot::Absent,
+        Some(m) if m.kind == read::Kind::Dir => {
+            if (m.dev, m.ino) == (a.dir_dev, a.dir_ino) {
+                DirSlot::TheDir
+            } else {
+                // Same path, different inode: something replaced the
+                // directory between the journal and now. Moving *this* one
+                // into the attic would displace something ricepilot never
+                // looked at.
+                DirSlot::Foreign(format!(
+                    "a different directory from the one that was adopted (inode {} rather than \
+                     {})",
+                    m.ino, a.dir_ino
+                ))
+            }
+        }
+        Some(m) if m.kind == read::Kind::Symlink => {
+            let t = read::readlink(path)?;
+            if t == a.new_target {
+                DirSlot::NewLink
+            } else {
+                DirSlot::Foreign(format!("a symlink to {}", t.display()))
+            }
+        }
+        Some(_) => DirSlot::Foreign("neither a directory nor a symlink".into()),
+    })
+}
+
+/// The three names one adopted destination can be sitting at mid-operation.
+struct DirSlots {
+    dest: DirSlot,
+    staged: DirSlot,
+    swap: DirSlot,
+}
+
+fn slots_of_adopt(a: &Adopt) -> Result<DirSlots> {
+    Ok(DirSlots {
+        dest: dir_slot_of(&a.dest, a)?,
+        staged: dir_slot_of(&a.staged, a)?,
+        swap: dir_slot_of(&mutate::fallback_slot(&a.staged), a)?,
+    })
+}
+
+/// Which side of the adopt this destination is on.
+fn adopt_side(a: &Adopt, s: &DirSlots) -> Result<Side> {
+    match &s.dest {
+        DirSlot::NewLink => Ok(Side::New),
+        DirSlot::TheDir => Ok(Side::Old),
+        // The fallback exchange's window: the directory is parked at the
+        // staging name and the destination itself is empty. Nothing else can
+        // make an adopted destination absent — the atomic path never does,
+        // and ricepilot has no delete.
+        DirSlot::Absent => Ok(Side::InFlight),
+        DirSlot::Foreign(detail) => Err(foreign(&a.dest, detail)),
+    }
+}
+
+/// What to do about one adopted destination, given where its three slots are.
+///
+/// Every forward arm ends with the displaced **real directory** going to the
+/// attic. That is the user's actual configuration, so it is moved and never
+/// removed (R2), and the report says where it went.
+fn actions_for_adopt(a: &Adopt, s: &DirSlots, dir: Direction) -> Result<Vec<Action>> {
+    let swap = mutate::fallback_slot(&a.staged);
+    let to_attic = Action::ToAttic {
+        from: a.staged.clone(),
+        rel: a.attic_rel.clone(),
+    };
+    Ok(match dir {
+        Direction::Forward => match (&s.dest, &s.staged, &s.swap) {
+            // Done but for the displaced directory, which the exchange left
+            // sitting at the staging name.
+            (DirSlot::NewLink, DirSlot::TheDir, DirSlot::Absent) => vec![to_attic],
+            // Fully done.
+            (DirSlot::NewLink, DirSlot::Absent, DirSlot::Absent) => Vec::new(),
+            // Still a real directory and nothing staged: the crash beat the
+            // staging step.
+            (DirSlot::TheDir, DirSlot::Absent, DirSlot::Absent) => vec![
+                Action::StageLink {
+                    path: a.staged.clone(),
+                    target: a.new_target.clone(),
+                },
+                Action::Exchange {
+                    dest: a.dest.clone(),
+                    staged: a.staged.clone(),
+                },
+                to_attic,
+            ],
+            // Staged, not yet exchanged.
+            (DirSlot::TheDir, DirSlot::NewLink, DirSlot::Absent) => vec![
+                Action::Exchange {
+                    dest: a.dest.clone(),
+                    staged: a.staged.clone(),
+                },
+                to_attic,
+            ],
+            // The fallback after its first rename: the link is at the scratch
+            // name and the directory is still live. Resume from step two.
+            (DirSlot::TheDir, DirSlot::Absent, DirSlot::NewLink) => vec![
+                Action::Rename {
+                    from: a.dest.clone(),
+                    to: a.staged.clone(),
+                },
+                Action::Rename {
+                    from: swap,
+                    to: a.dest.clone(),
+                },
+                to_attic,
+            ],
+            // The fallback's window: the directory is parked at the staging
+            // name and the destination is empty. Finish step three.
+            (DirSlot::Absent, DirSlot::TheDir, DirSlot::NewLink) => vec![
+                Action::Rename {
+                    from: swap,
+                    to: a.dest.clone(),
+                },
+                to_attic,
+            ],
+            (dest, st, sw) => return Err(unexpected_adopt(a, dest, st, sw)),
+        },
+
+        // Backward: no exchange took effect anywhere, so the user's directory
+        // is untouched and only the staged link has to go. The **copy inside
+        // the profile stays** — it is a copy, it harms nothing, and removing
+        // it is a removal (R2). The report names it.
+        Direction::Backward => match (&s.dest, &s.staged, &s.swap) {
+            (DirSlot::TheDir, DirSlot::Absent, DirSlot::Absent) => Vec::new(),
+            (DirSlot::TheDir, DirSlot::NewLink, DirSlot::Absent) => vec![Action::ToAttic {
+                from: a.staged.clone(),
+                rel: staged_link_rel(a),
+            }],
+            (DirSlot::TheDir, DirSlot::Absent, DirSlot::NewLink) => vec![Action::ToAttic {
+                from: swap,
+                rel: staged_link_rel(a),
+            }],
+            (dest, st, sw) => return Err(unexpected_adopt(a, dest, st, sw)),
+        },
+    })
+}
+
+/// Where an abandoned staged *link* lands, kept distinct from where the
+/// displaced *directory* would have landed so the attic says which is which.
+fn staged_link_rel(a: &Adopt) -> PathBuf {
+    let name = a
+        .attic_rel
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match a.attic_rel.parent() {
+        Some(p) => p.join(format!("{name}.staged")),
+        None => PathBuf::from(format!("{name}.staged")),
+    }
+}
+
+fn unexpected_adopt(a: &Adopt, dest: &DirSlot, staged: &DirSlot, swap: &DirSlot) -> Error {
+    Error::Refused {
+        rule: "R5",
+        path: a.dest.clone(),
+        why: format!(
+            "an interrupted adopt left a combination ricepilot cannot account for \
+             (destination: {dest:?}, staged: {staged:?}, scratch: {swap:?}). It will not \
+             guess; nothing has been changed"
+        ),
+    }
+}
+
 /// Where a staged link that is being abandoned lands in the attic. Distinct
 /// from the displaced old link's slot so the attic says which is which.
 fn staged_attic_rel(e: &Entry) -> PathBuf {
@@ -755,6 +1007,16 @@ pub fn plan_recovery(j: &Journal) -> Result<Recovery> {
         });
     }
 
+    let mut adopt_slots = Vec::new();
+    for a in &j.adopt {
+        let s = slots_of_adopt(a)?;
+        statuses.push(Status {
+            dest: a.dest.clone(),
+            side: adopt_side(a, &s)?,
+        });
+        adopt_slots.push(s);
+    }
+
     // Once a single exchange has taken effect, going back means undoing
     // something that is already true of the machine, using the same window
     // that just failed. Going forward finishes what is already most of the
@@ -772,6 +1034,9 @@ pub fn plan_recovery(j: &Journal) -> Result<Recovery> {
     let mut actions = Vec::new();
     for (e, s) in j.entries.iter().zip(&slots) {
         actions.extend(actions_for(e, s, direction)?);
+    }
+    for (a, s) in j.adopt.iter().zip(&adopt_slots) {
+        actions.extend(actions_for_adopt(a, s, direction)?);
     }
 
     // Retirements happen in phase C, after every exchange. Going forward
@@ -793,6 +1058,7 @@ pub fn plan_recovery(j: &Journal) -> Result<Recovery> {
         .iter()
         .map(|e| &e.dest)
         .chain(j.retire.iter().map(|r| &r.dest))
+        .chain(j.adopt.iter().map(|a| &a.dest))
     {
         if let Some(p) = dest.parent() {
             if !dirs.contains(&p.to_path_buf()) {
