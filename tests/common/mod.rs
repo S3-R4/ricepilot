@@ -9,6 +9,7 @@
 #![allow(dead_code)]
 
 pub mod scenario;
+pub mod switching;
 
 use std::path::{Path, PathBuf};
 

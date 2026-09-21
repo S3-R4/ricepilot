@@ -223,12 +223,38 @@ fn plan_against_a_real_directory() {
     insta::assert_snapshot!(r.stdout);
 }
 
+/// A command whose milestone has not landed exits `NotPossible` and names the
+/// milestone. It is deliberately not a silent no-op: `--commit` returning 0
+/// without doing anything is the most dangerous thing a half-built version of
+/// this tool could do.
 #[test]
-fn a_mutating_command_is_not_implemented_and_says_so() {
-    let f = with_caelestia("cli_switch");
-    let r = run(&f, &["switch", "caelestia", "--commit"]);
+fn a_command_from_a_later_milestone_is_not_implemented_and_says_so() {
+    let f = with_caelestia("cli_init");
+    let r = run(&f, &["init", "--commit"]);
     assert_eq!(r.code, ricepilot::error::ExitCode::NotPossible as i32);
     insta::assert_snapshot!(r.stderr);
+}
+
+/// `--relogin` and `--strict` are M5. Accepting a flag and quietly ignoring it
+/// is worse than refusing it: the user asked for something and was told
+/// nothing. Both refuse, and the switch itself does not happen.
+#[test]
+fn a_flag_from_a_later_milestone_refuses_rather_than_being_ignored() {
+    let f = with_caelestia("cli_switch_flags");
+    for flag in ["--relogin", "--strict"] {
+        let r = run(&f, &["switch", "caelestia", "--commit", flag]);
+        assert_eq!(
+            r.code,
+            ricepilot::error::ExitCode::NotPossible as i32,
+            "{flag}: {}",
+            r.stderr
+        );
+        insta::assert_snapshot!(format!("switch{}", flag.replace('-', "_")), r.stderr);
+    }
+    // And nothing happened.
+    assert!(ricepilot::generations::current(&f.state())
+        .unwrap()
+        .is_none());
 }
 
 /// M1 ships no mutating command at all, so no fixture destination may change.

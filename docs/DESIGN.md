@@ -139,9 +139,14 @@ the installer wrote. Refusing and telling the user is the correct outcome.
    denylisted destination; destination is a mountpoint or nested inside
    another destination; missing `requires`; sandboxed verify-config failure.
 6. Print the plan. **Stop here unless `--commit`.**
-7. Create every temp link (`dest.rp-tmp-<n>`, in the destination's own
+7. Probe `RENAME_EXCHANGE` (the probe writes two symlinks, so it happens after
+   the commit gate and not at startup — D39).
+8. Write the journal; fsync the journal file **and** its directory. This is
+   *before* the staging links, not after: a staged link created without a
+   journal naming it would be invisible to `recover` and would block the next
+   switch with `EEXIST` (D38).
+9. Create every temp link (`dest.rp-tmp-<n>`, in the destination's own
    directory so the later rename is same-directory and same-`st_dev`).
-8. Write the journal; fsync the journal file **and** its directory.
 
 **Phase B — the tight loop:** nothing but `renameat2(RENAME_EXCHANGE)` calls.
 No allocation, no IO decisions, no user interaction. This is the only window

@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: r.stderr
+---
+ricepilot: not possible: `init` is not implemented yet; M1 ships the read-only commands plan, status, list and show, M2 adds recover, and M3 adds switch, verify and rescue [see docs/NOT-POSSIBLE.md#not-yet-implemented]

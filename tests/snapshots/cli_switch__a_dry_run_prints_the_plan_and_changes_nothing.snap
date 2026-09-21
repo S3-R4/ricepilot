@@ -1,0 +1,25 @@
+---
+source: tests/cli_switch.rs
+expression: undate(&r.stdout)
+---
+switch: to profile `new`
+
+observed:
+  owned link     <HOME>/.config/hypr
+  owned link     <HOME>/.config/foot
+  absent         <HOME>/.config/btop
+
+would apply 9 operation(s):
+  stage link   <HOME>/.config/hypr.rp-tmp-0 -> <HOME>/rice/new/hypr
+  stage link   <HOME>/.config/foot.rp-tmp-1 -> <HOME>/rice/new/foot
+  exchange     <HOME>/.config/hypr <-> <HOME>/.config/hypr.rp-tmp-0
+  exchange     <HOME>/.config/foot <-> <HOME>/.config/foot.rp-tmp-1
+  create link  <HOME>/.config/btop -> <HOME>/rice/new/btop
+  to attic     <HOME>/.config/hypr.rp-tmp-0 -> <attic><HOME>/.config/hypr
+  to attic     <HOME>/.config/foot.rp-tmp-1 -> <attic><HOME>/.config/foot
+  fsync dir    <HOME>/.config
+  fsync dir    <HOME>/.local/state/ricepilot/attic/<TS>
+
+nothing has been changed. re-run with --commit to apply.
+a switch is an on-disk relink: it takes effect at the next login and does not touch
+the running session.

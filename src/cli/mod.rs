@@ -6,6 +6,7 @@
 
 pub mod paths;
 pub mod render;
+pub mod switch;
 
 use std::process::ExitCode;
 
@@ -135,6 +136,12 @@ pub fn run(command: Command) -> Result<Output> {
         Command::Recover { commit } => cmd_recover(&paths, commit).map(Output::from),
         Command::Verify { profile } => cmd_verify(&paths, &profile),
         Command::Rescue => cmd_rescue(&paths).map(Output::from),
+        Command::Switch {
+            profile,
+            commit,
+            relogin,
+            strict,
+        } => cmd_switch(&paths, &profile, commit, relogin, strict),
 
         // Mutating commands and the remaining read-only ones arrive in later
         // milestones. Saying so and exiting non-zero is the honest answer;
@@ -143,8 +150,8 @@ pub fn run(command: Command) -> Result<Output> {
             anchor: "not-yet-implemented",
             why: format!(
                 "`{}` is not implemented yet; M1 ships the read-only commands \
-                 plan, status, list and show, M2 adds recover and M3 adds verify \
-                 and rescue",
+                 plan, status, list and show, M2 adds recover, and M3 adds switch, \
+                 verify and rescue",
                 subcommand_name(&other)
             ),
         }),
@@ -296,4 +303,61 @@ fn cmd_rescue(paths: &paths::Paths) -> Result<String> {
         });
     }
     Ok(render::rescue(&p))
+}
+
+/// `ricepilot switch <profile> [--commit]`.
+///
+/// The target state comes from the profile manifest; the destinations to
+/// retire come from the ledger — every path ricepilot owns that this profile
+/// does not claim (D36). Everything after that is [`switch::run`], which
+/// `rollback` shares.
+fn cmd_switch(
+    paths: &paths::Paths,
+    name: &str,
+    commit: bool,
+    relogin: bool,
+    strict: bool,
+) -> Result<Output> {
+    // A flag that is accepted and quietly ignored is worse than one that is
+    // refused: the user asked for something and was told nothing.
+    if relogin {
+        return Err(Error::NotPossible {
+            anchor: "not-yet-implemented",
+            why: "`--relogin` runs `uwsm stop`, which needs the subprocess allowlist in \
+                  `ops::exec`; that is M5. the switch itself works — run it without the flag \
+                  and log out yourself"
+                .into(),
+        });
+    }
+    if strict {
+        return Err(Error::NotPossible {
+            anchor: "not-yet-implemented",
+            why: "`--strict` turns volatile-path drift into a refusal, and drift reporting at \
+                  switch time is M5. `ricepilot verify` compares a profile against its \
+                  recorded manifest today"
+                .into(),
+        });
+    }
+
+    let profile = paths::load(paths, name)?;
+    let root = profile.root(&paths.home);
+    let targets = profile.manifest.targets(&profile.dir, &paths.home);
+
+    // Anything ricepilot owns that this profile does not claim.
+    let ledger = crate::ledger::load(&paths.ledger_path())?;
+    let retire: Vec<std::path::PathBuf> = ledger
+        .owned_dests()
+        .into_iter()
+        .filter(|d| !targets.iter().any(|t| &t.dest == d))
+        .collect();
+
+    let req = switch::Request {
+        kind: switch::Kind::Switch,
+        label: format!("to profile `{name}`"),
+        profile: name.to_string(),
+        targets,
+        retire,
+        manifest_of: Some((root, profile.manifest.volatile.clone())),
+    };
+    switch::run(paths, &req, commit)
 }

@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: r.stderr
+---
+ricepilot: not possible: `--strict` turns volatile-path drift into a refusal, and drift reporting at switch time is M5. `ricepilot verify` compares a profile against its recorded manifest today [see docs/NOT-POSSIBLE.md#not-yet-implemented]

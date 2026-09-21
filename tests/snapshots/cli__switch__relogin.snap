@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: r.stderr
+---
+ricepilot: not possible: `--relogin` runs `uwsm stop`, which needs the subprocess allowlist in `ops::exec`; that is M5. the switch itself works — run it without the flag and log out yourself [see docs/NOT-POSSIBLE.md#not-yet-implemented]

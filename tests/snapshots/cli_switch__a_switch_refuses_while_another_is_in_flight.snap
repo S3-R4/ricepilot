@@ -1,0 +1,5 @@
+---
+source: tests/cli_switch.rs
+expression: r.stderr
+---
+ricepilot: refusing: a switch is already in flight and did not finish. run `ricepilot recover` first; until then ricepilot will not plan against a machine that is half way between two profiles (<HOME>/.local/state/ricepilot/journal/current.toml) [R4]

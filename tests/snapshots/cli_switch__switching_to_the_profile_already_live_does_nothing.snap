@@ -1,0 +1,12 @@
+---
+source: tests/cli_switch.rs
+expression: undate(&r.stdout)
+---
+switch: to profile `new`
+
+observed:
+  owned link     <HOME>/.config/hypr
+  owned link     <HOME>/.config/foot
+  owned link     <HOME>/.config/btop
+
+nothing to do: every destination already matches.

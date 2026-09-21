@@ -603,3 +603,36 @@ Three further calls in the generated script:
 
 Paths are single-quoted with `'` → `'\''`, and a fixture whose paths contain a
 quote is run through a real `/bin/sh` to prove it.
+
+## D38 — The journal is written before the staging links, not after
+
+*M3.* `docs/DESIGN.md` §6 had phase A create the temp links at step 7 and write
+the journal at step 8. Implementing the switch showed that ordering is wrong,
+so the code does it the other way round and the doc is corrected.
+
+A staging link created before the journal exists is an effect with no record.
+Crash there and `recover` finds no journal, reports "nothing to recover" — and
+it is right, because nothing it can see is in flight — while a `.rp-tmp-0`
+symlink sits in the user's `~/.config` forever. Worse, the *next* switch fails
+with `EEXIST` when `create_symlink_tmp` refuses to reuse it (which is itself
+correct: a stale staged link is evidence of an interrupted switch, and quietly
+overwriting evidence is not a mutator's job). The user is then stuck with a
+message about a temp file they never heard of.
+
+Writing the journal first costs nothing. Recovery already handles the state
+where a destination is old and nothing is staged — it stages the link and
+exchanges, which is the arm a step-driven replay would get wrong — so a crash
+between the journal and the first staging link resolves exactly like any other.
+
+## D39 — The `RENAME_EXCHANGE` probe happens after the commit gate
+
+*M3.* The brief says to probe the exchange mode once, at startup. The probe
+creates two symlinks in ricepilot's own state directory and keeps them (D22),
+which means probing at startup would give `switch` without `--commit` a side
+effect — and R4's promise is that a dry run has *zero* of them, not "none worth
+mentioning".
+
+So the probe is the first thing after the commit gate. Nothing before that
+point needs the answer: the plan is the same value in either mode (D19), and
+only the journal records which one was used. A test asserts that a dry run
+leaves not even `.rp-probe-a` behind.

@@ -356,3 +356,147 @@ pub fn rescue(path: &Path) -> String {
     let _ = writeln!(s, "displaces goes to `state/attic/`.");
     s
 }
+
+/// The part of `switch`/`rollback` output that is the same dry-run and
+/// committed: what was observed and what the plan is. R4's promise is that
+/// this block is identical either way, so it is one function.
+pub fn switch_header(
+    req: &super::switch::Request,
+    observed: &[Observed],
+    plan: &Plan,
+    committing: bool,
+) -> String {
+    let mut s = String::new();
+    let _ = writeln!(s, "{}: {}", req.kind.as_str(), req.label);
+    let _ = writeln!(s);
+
+    let _ = writeln!(s, "observed:");
+    if observed.is_empty() {
+        let _ = writeln!(s, "  (nothing to switch: no dir-link destinations)");
+    }
+    for o in observed {
+        let retiring = if req.retire.contains(&o.dest) {
+            "  (no longer managed after this)"
+        } else {
+            ""
+        };
+        let _ = writeln!(
+            s,
+            "  {:<14} {}{retiring}",
+            o.shape.as_str(),
+            o.dest.display()
+        );
+    }
+    let _ = writeln!(s);
+
+    match plan {
+        Plan::NoOp => {
+            let _ = writeln!(s, "nothing to do: every destination already matches.");
+        }
+        Plan::Apply { ops } => {
+            // The list is the same value either way — that is R4's promise —
+            // but the verb is not. Telling someone who typed `--commit` what
+            // ricepilot "would" do is how a person ends up unsure whether
+            // their machine changed.
+            let _ = writeln!(
+                s,
+                "{} {} operation(s):",
+                if committing {
+                    "applying"
+                } else {
+                    "would apply"
+                },
+                ops.len()
+            );
+            for op in ops {
+                let _ = writeln!(s, "  {op}");
+            }
+        }
+        Plan::Decline { refusals } => {
+            let _ = writeln!(s, "declined. nothing has been changed.");
+            let _ = writeln!(s);
+            let _ = write!(s, "{}", refusal_list(refusals));
+        }
+    }
+    s
+}
+
+/// The dry-run tail. Says what did not happen, and what a switch does and does
+/// not reach — a user who expects their session to change is a user who will
+/// conclude the tool did not work.
+pub const UNCOMMITTED: &str = "\nnothing has been changed. re-run with --commit to apply.\n\
+a switch is an on-disk relink: it takes effect at the next login and does not touch\nthe running \
+session.\n";
+
+/// The committed tail: what happened, where the displaced things are, and the
+/// two ways back.
+#[allow(clippy::too_many_arguments)]
+pub fn switch_done(
+    req: &super::switch::Request,
+    new_id: u32,
+    back_to: u32,
+    attic: &Path,
+    script: &Path,
+    manifest: Option<&Path>,
+    retired: &[std::path::PathBuf],
+) -> String {
+    let mut s = String::new();
+    let _ = writeln!(s);
+    let _ = writeln!(s, "applied. this is generation {new_id:04}.");
+    let _ = writeln!(s);
+    let _ = writeln!(s, "displaced links are in:");
+    let _ = writeln!(s, "  {}", attic.display());
+    let _ = writeln!(s, "nothing was removed.");
+
+    if !retired.is_empty() {
+        let _ = writeln!(s);
+        let _ = writeln!(
+            s,
+            "{} destination(s) are no longer managed. ricepilot cannot make a path absent —",
+            retired.len()
+        );
+        let _ = writeln!(
+            s,
+            "that would be a deletion — so their links were moved into the attic above:"
+        );
+        for r in retired {
+            let _ = writeln!(s, "  {}", r.display());
+        }
+    }
+
+    if let Some(m) = manifest {
+        let _ = writeln!(s);
+        let _ = writeln!(s, "a blake3 manifest of the profile was recorded at:");
+        let _ = writeln!(s, "  {}", m.display());
+        let _ = writeln!(s, "`ricepilot verify` compares against it.");
+    }
+
+    let _ = writeln!(s);
+    let _ = writeln!(s, "to undo this:");
+    let _ = writeln!(
+        s,
+        "  ricepilot rollback --commit            re-applies generation {back_to:04}"
+    );
+    let _ = writeln!(
+        s,
+        "  sh {}   the same thing, from a TTY, without ricepilot",
+        script.display()
+    );
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "this changed the filesystem, not the running session. log out and back in to see it:"
+    );
+    let _ = writeln!(s, "  uwsm stop");
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "never `hyprctl dispatch exit` and never kill Hyprland — `uwsm stop` is the clean"
+    );
+    let _ = writeln!(
+        s,
+        "logout. if the session does not come back, TTY F2–F6 and run the rescue script above."
+    );
+    let _ = req;
+    s
+}
