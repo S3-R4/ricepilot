@@ -18,6 +18,10 @@ pub enum ExitCode {
     Failed = 4,
     /// Another ricepilot process holds the lock.
     Locked = 5,
+    /// `verify` ran correctly and found the profile changed since it was
+    /// recorded. Not an error: the command did its job, and this is the
+    /// answer (D34).
+    Drift = 6,
 }
 
 #[derive(Debug, thiserror::Error)]

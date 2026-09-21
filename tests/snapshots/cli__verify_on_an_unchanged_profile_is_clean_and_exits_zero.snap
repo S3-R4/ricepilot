@@ -1,0 +1,10 @@
+---
+source: tests/cli.rs
+expression: r.stdout
+---
+verify: profile `bare`
+root:      <HOME>/.local/share/ricepilot/profiles/bare
+recorded:  20260921T101112Z (3 path(s))
+excluded:  **/*.log
+
+clean: every recorded path still hashes to what it did.

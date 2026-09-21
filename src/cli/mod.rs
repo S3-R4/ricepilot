@@ -86,12 +86,34 @@ pub enum Command {
     },
 }
 
+/// What a command produced: its whole output, and the status it exits with.
+///
+/// The two are separate because a command can succeed at its job and still
+/// have something to report that a script must be able to notice. `verify`
+/// is the case: it ran correctly, it printed what it found, and what it found
+/// was drift. Folding that into an `Err` would put the itemised report on
+/// stderr and reduce it to one line; folding it into exit 0 would make a
+/// check that a script cannot act on (D34).
+pub struct Output {
+    pub text: String,
+    pub code: crate::error::ExitCode,
+}
+
+impl From<String> for Output {
+    fn from(text: String) -> Self {
+        Output {
+            text,
+            code: crate::error::ExitCode::Ok,
+        }
+    }
+}
+
 pub fn main() -> ExitCode {
     let cli = Cli::parse();
     match run(cli.command) {
         Ok(out) => {
-            print!("{out}");
-            ExitCode::from(crate::error::ExitCode::Ok as u8)
+            print!("{}", out.text);
+            ExitCode::from(out.code as u8)
         }
         Err(e) => {
             eprintln!("ricepilot: {e}");
@@ -100,17 +122,18 @@ pub fn main() -> ExitCode {
     }
 }
 
-/// Dispatch. Commands return their whole output as a `String` rather than
-/// printing as they go, so a command that fails half way through cannot have
-/// already printed half an answer.
-pub fn run(command: Command) -> Result<String> {
+/// Dispatch. Commands return their whole output rather than printing as they
+/// go, so a command that fails half way through cannot have already printed
+/// half an answer.
+pub fn run(command: Command) -> Result<Output> {
     let paths = paths::Paths::from_env()?;
     match command {
-        Command::List => cmd_list(&paths),
-        Command::Show { profile } => cmd_show(&paths, &profile),
-        Command::Status => cmd_status(&paths),
-        Command::Plan { profile } => cmd_plan(&paths, &profile),
-        Command::Recover { commit } => cmd_recover(&paths, commit),
+        Command::List => cmd_list(&paths).map(Output::from),
+        Command::Show { profile } => cmd_show(&paths, &profile).map(Output::from),
+        Command::Status => cmd_status(&paths).map(Output::from),
+        Command::Plan { profile } => cmd_plan(&paths, &profile).map(Output::from),
+        Command::Recover { commit } => cmd_recover(&paths, commit).map(Output::from),
+        Command::Verify { profile } => cmd_verify(&paths, &profile),
 
         // Mutating commands and the remaining read-only ones arrive in later
         // milestones. Saying so and exiting non-zero is the honest answer;
@@ -119,7 +142,7 @@ pub fn run(command: Command) -> Result<String> {
             anchor: "not-yet-implemented",
             why: format!(
                 "`{}` is not implemented yet; M1 ships the read-only commands \
-                 plan, status, list and show, and M2 adds recover",
+                 plan, status, list and show, M2 adds recover and M3 adds verify",
                 subcommand_name(&other)
             ),
         }),
@@ -210,4 +233,44 @@ fn cmd_plan(paths: &paths::Paths, name: &str) -> Result<String> {
     let plan = crate::plan::plan(&observed, &targets, &ctx);
 
     Ok(render::plan(&profile.name, &observed, &plan))
+}
+
+/// `ricepilot verify <profile>`.
+///
+/// Compares the profile tree against the blake3 manifest recorded when
+/// ricepilot last switched to it. It reports what it observed and never what
+/// the profile manifest claims should be true (`SAFETY.md` R7).
+fn cmd_verify(paths: &paths::Paths, name: &str) -> Result<Output> {
+    let profile = paths::load(paths, name)?;
+    let root = profile.root(&paths.home);
+    let recorded_path = crate::verify::manifest_path(&paths.state, name);
+
+    let Some(recorded) = crate::verify::load(&recorded_path)? else {
+        return Err(Error::Refused {
+            rule: "R7",
+            path: recorded_path,
+            why: format!(
+                "no manifest has been recorded for `{name}` yet, so there is nothing to compare \
+                 against. one is recorded each time ricepilot switches to a profile"
+            ),
+        });
+    };
+
+    let now = crate::verify::build(
+        name,
+        &root,
+        &profile.manifest.volatile,
+        crate::journal::timestamp_id(std::time::SystemTime::now()),
+    )?;
+    let diffs = crate::verify::compare(&recorded, &now);
+    let drifted = diffs.iter().any(|d| d.is_substantive());
+
+    Ok(Output {
+        text: render::verify(name, &root, &recorded, &diffs),
+        code: if drifted {
+            crate::error::ExitCode::Drift
+        } else {
+            crate::error::ExitCode::Ok
+        },
+    })
 }

@@ -266,6 +266,36 @@ pub fn slurp(path: &Path) -> Result<String> {
     Ok(buf)
 }
 
+/// Feed a regular file's bytes to `sink` in chunks, without following a
+/// symlink at the final component.
+///
+/// Chunked rather than returning a `Vec<u8>` so [`crate::verify`] can hash a
+/// tree of any size in bounded memory, and so the bytes of a user's config
+/// never accumulate anywhere ricepilot could accidentally write them out.
+pub fn read_into(path: &Path, sink: &mut dyn FnMut(&[u8])) -> Result<()> {
+    let (dirfd, name) = parent_dirfd(path)?;
+    let fd = rustix::fs::openat(
+        &dirfd,
+        name.as_os_str(),
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|e| io(format!("opening {}", path.display()), e))?;
+
+    let mut file = std::fs::File::from(fd);
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).map_err(|source| Error::Io {
+            context: format!("reading {}", path.display()),
+            source,
+        })?;
+        if n == 0 {
+            return Ok(());
+        }
+        sink(&buf[..n]);
+    }
+}
+
 /// Entry names in a directory, sorted, excluding `.` and `..`. The directory
 /// itself is opened `O_NOFOLLOW`, so a symlink in its place is an error.
 pub fn list_dir(path: &Path) -> Result<Vec<OsString>> {

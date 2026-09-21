@@ -273,3 +273,63 @@ pub fn recover(r: &Recovery, committed: bool) -> String {
     }
     s
 }
+
+/// `ricepilot verify <profile>`.
+///
+/// Says what was compared before it says what differs. A drift report whose
+/// reader cannot tell which paths were *excluded* from it is a report that
+/// invites the wrong conclusion from a short list.
+pub fn verify(
+    profile: &str,
+    root: &Path,
+    recorded: &crate::verify::TreeManifest,
+    diffs: &[crate::verify::Difference],
+) -> String {
+    let mut s = String::new();
+    let _ = writeln!(s, "verify: profile `{profile}`");
+    let _ = writeln!(s, "root:      {}", root.display());
+    let _ = writeln!(
+        s,
+        "recorded:  {} ({} path(s))",
+        recorded.created,
+        recorded.entries.len()
+    );
+    let _ = writeln!(
+        s,
+        "excluded:  {}",
+        if recorded.volatile.is_empty() {
+            "(no volatile globs declared)".to_string()
+        } else {
+            recorded.volatile.join(", ")
+        }
+    );
+    let _ = writeln!(s);
+
+    let substantive: Vec<&crate::verify::Difference> =
+        diffs.iter().filter(|d| d.is_substantive()).collect();
+    let touched = diffs.len() - substantive.len();
+
+    if substantive.is_empty() {
+        let _ = writeln!(s, "clean: every recorded path still hashes to what it did.");
+    } else {
+        let _ = writeln!(s, "{} path(s) differ:", substantive.len());
+        for d in &substantive {
+            let _ = writeln!(s, "  {d}");
+        }
+    }
+    if touched > 0 {
+        let _ = writeln!(s);
+        let _ = writeln!(
+            s,
+            "{touched} further path(s) have a newer modification time and byte-identical \
+             content."
+        );
+        let _ = writeln!(
+            s,
+            "that is not drift; it is an application having rewritten a file with what was \
+             already"
+        );
+        let _ = writeln!(s, "in it. declare the path `volatile` to stop hashing it.");
+    }
+    s
+}

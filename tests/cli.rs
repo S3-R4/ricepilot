@@ -263,3 +263,79 @@ fn no_read_only_command_changes_anything() {
 }
 
 use std::os::unix::fs::MetadataExt as _;
+
+/// A profile with a small real payload of its own, so `verify` has a tree to
+/// hash. `volatile` covers one file in it.
+fn with_payload(case: &str) -> Fixture {
+    let f = Fixture::new(case);
+    let dir = f.profile(
+        "bare",
+        r#"name = "bare"
+volatile = ["**/*.log"]
+
+[[path]]
+dest       = "~/.config/hypr"
+src        = "hypr"
+kind       = "dir-link"
+activation = "relogin"
+"#,
+    );
+    let _ = dir;
+    f.file(
+        ".local/share/ricepilot/profiles/bare/hypr/hyprland.conf",
+        "bind = SUPER, Q\n",
+    );
+    f.file(
+        ".local/share/ricepilot/profiles/bare/hypr/hypr.log",
+        "noise\n",
+    );
+    f
+}
+
+fn record_manifest(f: &Fixture) {
+    let root = f.path(".local/share/ricepilot/profiles/bare");
+    let m = ricepilot::verify::build("bare", &root, &["**/*.log".to_string()], "20260921T101112Z")
+        .unwrap();
+    ricepilot::verify::save(&ricepilot::verify::manifest_path(&f.state(), "bare"), &m).unwrap();
+}
+
+/// Nothing has been recorded, so there is nothing to compare against. Saying
+/// so is the honest answer; comparing against an empty manifest would report
+/// the whole tree as newly added.
+#[test]
+fn verify_before_anything_is_recorded_refuses() {
+    let f = with_payload("cli_verify_unrecorded");
+    let r = run(&f, &["verify", "bare"]);
+    assert_eq!(r.code, ricepilot::error::ExitCode::Refused as i32);
+    insta::assert_snapshot!(r.stderr);
+}
+
+#[test]
+fn verify_on_an_unchanged_profile_is_clean_and_exits_zero() {
+    let f = with_payload("cli_verify_clean");
+    record_manifest(&f);
+    let r = run(&f, &["verify", "bare"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    insta::assert_snapshot!(r.stdout);
+}
+
+/// One byte in a hashed file, one rewrite inside a volatile one. Only the
+/// first is drift, and the exit code says so without the report having to be
+/// parsed.
+#[test]
+fn verify_reports_drift_and_exits_with_the_drift_code() {
+    let f = with_payload("cli_verify_drift");
+    record_manifest(&f);
+    f.file(
+        ".local/share/ricepilot/profiles/bare/hypr/hyprland.conf",
+        "bind = SUPER, W\n",
+    );
+    f.file(
+        ".local/share/ricepilot/profiles/bare/hypr/hypr.log",
+        "much more noise\n",
+    );
+
+    let r = run(&f, &["verify", "bare"]);
+    assert_eq!(r.code, ricepilot::error::ExitCode::Drift as i32);
+    insta::assert_snapshot!(r.stdout);
+}

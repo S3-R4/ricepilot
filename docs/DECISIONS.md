@@ -452,3 +452,48 @@ mode from another would be describing two files whenever something wrote
 between them. One `statat`, one answer.
 
 This is an ops-surface change, so it is its own commit and this is its reason.
+
+## D33 — The volatile matcher is written, not depended on
+
+*M3.* `verify` needs glob matching and `Cargo.toml` has no glob crate. Adding
+one changes the committed `Cargo.lock`, and a dependency in a tool whose whole
+claim is that its complete set of effects can be audited is a real cost: every
+crate added is a crate a reviewer has to take on trust, and the transitive set
+does not stay the size it was on the day it was added.
+
+The matcher is forty lines because the syntax it has to support is the syntax
+the manifest actually uses: `*` and `?` within one segment, `**` for any
+number of segments, and a pattern matching a directory excluding its subtree
+(which is what makes `generated = ["btop/themes"]` mean what a reader expects).
+Character classes, brace expansion and negation are not supported and are not
+needed; a manifest using one would simply not match, rather than matching
+something unintended.
+
+The segment matcher backtracks iteratively rather than recursively, so a
+pattern like `*a*a*a*a*b` costs time and not stack. That case is a test.
+
+The alternative — `globset`, which is good — was rejected for the dependency,
+not for its behaviour. If v1.1 needs the full syntax, taking it then is a
+smaller decision than taking it now for four patterns.
+
+## D34 — `verify` reports drift on stdout and in its exit code
+
+*M3.* A check whose result a script cannot act on is not a check, and an
+itemised report reduced to one line on stderr is not a report. `verify` wants
+both, so `cli::run` returns an `Output { text, code }` and `ExitCode` gains
+`Drift = 6`.
+
+Drift is deliberately *not* an `Error`. Nothing failed: `verify` ran, read the
+tree, compared it, and the answer was "this profile has changed". Modelling
+that as an error would put it in the same category as a refusal, and refusals
+mean "ricepilot declined to act", which is a different thing to tell a user.
+
+Two further calls inside the comparison:
+
+* A directory's `mtime_ns` is recorded and **not** compared. It moves whenever
+  one of its entries is added, removed or replaced, so comparing it reports a
+  shadow of every real change, once per ancestor. The entries have rows of
+  their own; the shadow adds nothing and trains the reader to skim.
+* A file rewritten with byte-identical content is `Touched`, reported in its
+  own paragraph and excluded from the drift exit code. caelestia's theme engine
+  does this constantly. It is worth saying (R7) and it is not drift.

@@ -24,6 +24,7 @@ are the design (see [SAFETY.md](SAFETY.md)).
     generations/NNNN.toml   one per successful switch
     generations/current     pointer to the active generation
     journal/                write-ahead log of an in-flight switch
+    manifests/<name>.toml   blake3 manifest of a profile, recorded at switch
     attic/<ts>/             displaced objects, never deleted
     baseline/               cp -a --reflink=auto copy taken at init
     rescue.sh               standalone POSIX sh restore of generation N-1
@@ -224,6 +225,13 @@ it, never because it happened to be found.
 
 Read-only: `status`, `doctor`, `list`, `show`, `plan`, `verify`, `diff`,
 `rescue` (prints the script's path).
+
+`verify <profile>` compares the profile tree against the blake3 manifest
+recorded the last time ricepilot switched to it: content hash for regular
+files, hash of the target *string* for symlinks (never followed), plus mode,
+uid, gid, `mtime_ns` and type, with `volatile` globs excluded. It exits `6`
+when the profile has changed, so a script can act on the answer without
+parsing the report (see [DECISIONS.md](DECISIONS.md) D34).
 
 Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
 `adopt`, `switch` (`--relogin`, `--strict`), `rollback`, `recover`, `gc`.
