@@ -1,0 +1,12 @@
+---
+source: tests/plan_snapshots.rs
+expression: "ricepilot::cli::render::plan(\"new\", &obs, &plan(&obs, &tgt, &ctx()))"
+---
+plan: switch to profile `new`
+
+observed:
+  real directory /home/u/.config/mounted
+
+declined. nothing has been changed.
+
+  [R4] /home/u/.config/mounted: is a mount point. Renaming it would cross a filesystem boundary.

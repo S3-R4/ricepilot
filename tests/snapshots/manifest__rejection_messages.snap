@@ -1,0 +1,11 @@
+---
+source: tests/manifest.rs
+expression: out
+---
+profile `p`: `src = ../../../etc` must be relative to the profile root and free of `.` and `..`
+not possible: `~/.config/starship.toml` declares kind = file-copy; v1 activates dir-link only (v1.1) [see docs/NOT-POSSIBLE.md#file-activation]
+not possible: `~/.config/hypr` declares activation = live; v1 switches at next login only [see docs/NOT-POSSIBLE.md#live-apply]
+profile `p`: `~/.config/fuzzel` is kind = generated and must set activation = "never": generated and volatile paths are classifications, never activated
+profile `p`: `hypr_dialect = "toml"` must be "conf" or "lua"
+profile `p`: `root = relative/thing` must be absolute or start with `~`
+profile `<unparsed>`: unknown field `requries`, expected one of `name`, `root`, `requires`, `hypr_dialect`, `path`, `volatile`, `generated`

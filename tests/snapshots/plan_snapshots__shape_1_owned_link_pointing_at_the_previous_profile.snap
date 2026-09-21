@@ -1,0 +1,18 @@
+---
+source: tests/plan_snapshots.rs
+expression: "render(\"hypr\", Shape::OwnedLink { target: src(\"old\", \"hypr\") })"
+---
+plan: switch to profile `new`
+
+observed:
+  owned link     /home/u/.config/hypr
+
+would apply 5 operation(s):
+  stage link   /home/u/.config/hypr.rp-tmp-0 -> /home/u/.local/share/ricepilot/profiles/new/hypr
+  exchange     /home/u/.config/hypr <-> /home/u/.config/hypr.rp-tmp-0
+  to attic     /home/u/.config/hypr.rp-tmp-0 -> <attic>/home/u/.config/hypr
+  fsync dir    /home/u/.config
+  fsync dir    /home/u/.local/state/ricepilot/attic/20260921T120000Z
+
+nothing has been changed. re-run with --commit to apply.
+a switch takes effect at the next login; it does not touch the running session.

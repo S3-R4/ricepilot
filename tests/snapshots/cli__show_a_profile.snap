@@ -1,0 +1,20 @@
+---
+source: tests/cli.rs
+expression: r.stdout
+---
+profile:      caelestia
+root:         <HOME>/rice/caelestia (by reference — ricepilot never writes here)
+hypr dialect: conf
+requires:     hyprland, foot
+
+paths:
+  dir-link   relogin  <HOME>/.config/hypr <- <HOME>/rice/caelestia/hypr
+  dir-link   relogin  <HOME>/.config/foot <- <HOME>/rice/caelestia/foot
+  generated  never    <HOME>/.config/fuzzel <- <HOME>/rice/caelestia/fuzzel
+
+volatile globs (excluded from hashing):
+  **/fish_variables
+  shell.json
+
+generated paths (never linked, never profile content):
+  hypr/scheme/current.conf

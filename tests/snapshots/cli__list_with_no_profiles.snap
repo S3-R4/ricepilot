@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: r.stdout
+---
+no profiles registered. run `ricepilot init` to register the live rice.

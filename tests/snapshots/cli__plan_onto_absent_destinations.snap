@@ -1,0 +1,17 @@
+---
+source: tests/cli.rs
+expression: r.stdout
+---
+plan: switch to profile `caelestia`
+
+observed:
+  absent         <HOME>/.config/hypr
+  absent         <HOME>/.config/foot
+
+would apply 3 operation(s):
+  create link  <HOME>/.config/hypr -> <HOME>/rice/caelestia/hypr
+  create link  <HOME>/.config/foot -> <HOME>/rice/caelestia/foot
+  fsync dir    <HOME>/.config
+
+nothing has been changed. re-run with --commit to apply.
+a switch takes effect at the next login; it does not touch the running session.

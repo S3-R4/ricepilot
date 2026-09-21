@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: r.stderr
+---
+ricepilot: profile `../../../etc`: profile name must be a single directory name

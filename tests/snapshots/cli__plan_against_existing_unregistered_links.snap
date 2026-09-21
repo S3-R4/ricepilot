@@ -1,0 +1,18 @@
+---
+source: tests/cli.rs
+expression: r.stdout
+---
+plan: switch to profile `caelestia`
+
+observed:
+  foreign link   <HOME>/.config/hypr
+  foreign link   <HOME>/.config/foot
+
+declined. nothing has been changed.
+
+  [R4] <HOME>/.config/hypr: is a foreign link, which ricepilot did not create. It cannot know what depends on it, so it will not replace it. Register it with `ricepilot adopt` or move it aside yourself.
+  [R4] <HOME>/.config/foot: is a foreign link, which ricepilot did not create. It cannot know what depends on it, so it will not replace it. Register it with `ricepilot adopt` or move it aside yourself.
+
+note: no ledger is being read yet (milestone M3), so no live link can satisfy the
+      ownership predicate. Existing links are reported as foreign, which is the
+      correct answer until `init` registers them.

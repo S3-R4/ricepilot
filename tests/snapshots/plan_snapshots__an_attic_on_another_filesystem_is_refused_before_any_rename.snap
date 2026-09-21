@@ -1,0 +1,12 @@
+---
+source: tests/plan_snapshots.rs
+expression: "ricepilot::cli::render::plan(\"new\", &obs, &plan(&obs, &tgt, &c))"
+---
+plan: switch to profile `new`
+
+observed:
+  owned link     /home/u/.config/hypr
+
+declined. nothing has been changed.
+
+  [R4] /home/u/.config/hypr: sits on device 66 but the attic is on device 70. `rename(2)` across filesystems fails with EXDEV, so nothing could be displaced safely.

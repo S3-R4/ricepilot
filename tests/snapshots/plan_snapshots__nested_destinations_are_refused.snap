@@ -1,0 +1,13 @@
+---
+source: tests/plan_snapshots.rs
+expression: "ricepilot::cli::render::plan(\"new\", &obs, &plan(&obs, &tgt, &ctx()))"
+---
+plan: switch to profile `new`
+
+observed:
+  absent         /home/u/.config/quickshell
+  absent         /home/u/.config/quickshell/overview
+
+declined. nothing has been changed.
+
+  [R4] /home/u/.config/quickshell/overview: is nested inside the managed destination /home/u/.config/quickshell. Switching both would make the inner one's meaning depend on the order of two renames.

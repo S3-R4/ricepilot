@@ -1,0 +1,14 @@
+---
+source: tests/cli.rs
+expression: r.stdout
+---
+plan: switch to profile `caelestia`
+
+observed:
+  real directory <HOME>/.config/hypr
+  real directory <HOME>/.config/foot
+
+declined. nothing has been changed.
+
+  [R4] <HOME>/.config/hypr: is a real directory, not the link ricepilot owns. Something (typically a rice installer) replaced the link. Re-linking would discard whatever it wrote; run `ricepilot doctor` and decide deliberately.
+  [R4] <HOME>/.config/foot: is a real directory, not the link ricepilot owns. Something (typically a rice installer) replaced the link. Re-linking would discard whatever it wrote; run `ricepilot doctor` and decide deliberately.

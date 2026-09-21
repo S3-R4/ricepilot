@@ -1,0 +1,12 @@
+---
+source: tests/plan_snapshots.rs
+expression: "render(\"starship.toml\", Shape::RealFile)"
+---
+plan: switch to profile `new`
+
+observed:
+  real file      /home/u/.config/starship.toml
+
+declined. nothing has been changed.
+
+  [R5] /home/u/.config/starship.toml: is a regular file. v1 activates directory links only; file deployment is v1.1.

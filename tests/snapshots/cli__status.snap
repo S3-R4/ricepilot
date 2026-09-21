@@ -1,0 +1,12 @@
+---
+source: tests/cli.rs
+expression: r.stdout
+---
+home:      <HOME>
+data:      <HOME>/.local/share/ricepilot
+state:     <HOME>/.local/state/ricepilot
+profiles:  1
+             caelestia
+ledger:    absent — no live path is registered as owned yet
+
+generations and drift reporting are not implemented yet (milestone M3).

@@ -146,3 +146,15 @@ parsed. It does not mean the session will come up.
 `SESSION_DIR` patch, the unsnapshotted `/home`, the running theme daemons —
 and prints commands rather than running them. A health check that mutates is
 a health check nobody can safely run.
+
+## not-yet-implemented
+
+A command that exists in the CLI surface but whose milestone has not landed
+exits `NotPossible` (3) and names the milestone that will bring it.
+
+This is deliberately not a silent no-op and not a stub that pretends to
+succeed. `switch --commit` returning 0 without switching anything would be
+the single most dangerous thing a partially-built version of this tool could
+do: the user would log out expecting a new profile and be told nothing was
+wrong. The exit code and the message say plainly which half of the tool
+exists.

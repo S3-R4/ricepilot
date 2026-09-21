@@ -1,0 +1,12 @@
+---
+source: tests/plan_snapshots.rs
+expression: "render(\"hypr\", Shape::ForeignLink\n{ target: PathBuf::from(\"/home/u/somewhere/hypr\"), dangling: false, })"
+---
+plan: switch to profile `new`
+
+observed:
+  foreign link   /home/u/.config/hypr
+
+declined. nothing has been changed.
+
+  [R4] /home/u/.config/hypr: is a foreign link, which ricepilot did not create. It cannot know what depends on it, so it will not replace it. Register it with `ricepilot adopt` or move it aside yourself.

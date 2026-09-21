@@ -1,0 +1,12 @@
+---
+source: tests/plan_snapshots.rs
+expression: "ricepilot::cli::render::plan(\"new\", &obs, &plan(&obs, &tgt, &ctx()))"
+---
+plan: switch to profile `new`
+
+observed:
+  absent         /home/u/.config/uwsm/env-hyprland
+
+declined. nothing has been changed.
+
+  [R4] /home/u/.config/uwsm/env-hyprland: is inside `~/.config/uwsm`, which v1 will not manage under any circumstances.

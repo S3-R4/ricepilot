@@ -1,0 +1,15 @@
+---
+source: tests/plan_snapshots.rs
+expression: "ricepilot::cli::render::refusal_list(&refusals)"
+---
+  [R4] /home/u/.config/hypr: is a foreign link, which ricepilot did not create. It cannot know what depends on it, so it will not replace it. Register it with `ricepilot adopt` or move it aside yourself.
+  [R4] /home/u/.config/foot: is a dangling foreign link, which ricepilot did not create. It cannot know what depends on it, so it will not replace it. Register it with `ricepilot adopt` or move it aside yourself.
+  [R4] /home/u/.config/hypr: is a real directory, not the link ricepilot owns. Something (typically a rice installer) replaced the link. Re-linking would discard whatever it wrote; run `ricepilot doctor` and decide deliberately.
+  [R5] /home/u/.config/starship.toml: is a regular file. v1 activates directory links only; file deployment is v1.1.
+  [R4] /home/u/.config/hypr: sits on device 66 but the attic is on device 70. `rename(2)` across filesystems fails with EXDEV, so nothing could be displaced safely.
+  [R4] /home/u/.config/uwsm: is inside `~/.config/uwsm`, which v1 will not manage under any circumstances.
+  [R4] /home/u/.config/mounted: is a mount point. Renaming it would cross a filesystem boundary.
+  [R4] /home/u/.config/quickshell/overview: is nested inside the managed destination /home/u/.config/quickshell. Switching both would make the inner one's meaning depend on the order of two renames.
+  [R4] this profile requires packages that are not installed: hyprland, foot. ricepilot never installs anything; run: paru -S --needed hyprland foot
+  [R5] /home/u/.config/hypr/hyprland.conf: did not parse in a sandboxed verify-config run: line 12: unknown keyword `bindd`
+  [R4] /home/u/.config/btop: was declared but not observed. ricepilot will not plan against an incomplete picture of the filesystem.

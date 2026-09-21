@@ -1,0 +1,12 @@
+---
+source: tests/plan_snapshots.rs
+expression: "render(\"hypr\", Shape::RealDir)"
+---
+plan: switch to profile `new`
+
+observed:
+  real directory /home/u/.config/hypr
+
+declined. nothing has been changed.
+
+  [R4] /home/u/.config/hypr: is a real directory, not the link ricepilot owns. Something (typically a rice installer) replaced the link. Re-linking would discard whatever it wrote; run `ricepilot doctor` and decide deliberately.

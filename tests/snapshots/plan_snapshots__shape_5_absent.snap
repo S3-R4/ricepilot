@@ -1,0 +1,15 @@
+---
+source: tests/plan_snapshots.rs
+expression: "render(\"hypr\", Shape::Absent)"
+---
+plan: switch to profile `new`
+
+observed:
+  absent         /home/u/.config/hypr
+
+would apply 2 operation(s):
+  create link  /home/u/.config/hypr -> /home/u/.local/share/ricepilot/profiles/new/hypr
+  fsync dir    /home/u/.config
+
+nothing has been changed. re-run with --commit to apply.
+a switch takes effect at the next login; it does not touch the running session.

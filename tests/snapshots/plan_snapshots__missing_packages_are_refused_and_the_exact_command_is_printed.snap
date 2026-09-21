@@ -1,0 +1,12 @@
+---
+source: tests/plan_snapshots.rs
+expression: "ricepilot::cli::render::plan(\"new\", &obs, &plan(&obs, &tgt, &c))"
+---
+plan: switch to profile `new`
+
+observed:
+  owned link     /home/u/.config/hypr
+
+declined. nothing has been changed.
+
+  [R4] this profile requires packages that are not installed: hyprland, foot. ricepilot never installs anything; run: paru -S --needed hyprland foot

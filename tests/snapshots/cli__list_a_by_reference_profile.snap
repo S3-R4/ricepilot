@@ -1,0 +1,6 @@
+---
+source: tests/cli.rs
+expression: r.stdout
+---
+PROFILE          KIND           ROOT
+caelestia        by-reference   <HOME>/rice/caelestia

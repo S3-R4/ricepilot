@@ -1,0 +1,211 @@
+//! The read-only commands, end to end, against real fixture trees.
+//!
+//! Every invocation runs with `RICEPILOT_HOME` / `RICEPILOT_DATA_DIR` /
+//! `RICEPILOT_STATE_DIR` pointing inside `target/fixtures/`, so no test can
+//! reach the real `$HOME` (`SAFETY.md` R1).
+
+mod common;
+
+use std::path::Path;
+use std::process::Command;
+
+use assert_cmd::cargo::cargo_bin;
+use common::{redact, Fixture};
+
+struct Run {
+    stdout: String,
+    stderr: String,
+    code: i32,
+}
+
+fn run(f: &Fixture, args: &[&str]) -> Run {
+    let mut cmd = Command::new(cargo_bin("ricepilot"));
+    cmd.args(args);
+    // A cleared environment plus only the fixture variables: if the binary
+    // ever reached for the real HOME, there would not be one to find.
+    cmd.env_clear();
+    for (k, v) in f.env() {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().unwrap();
+    Run {
+        stdout: redact(&String::from_utf8_lossy(&out.stdout), f),
+        stderr: redact(&String::from_utf8_lossy(&out.stderr), f),
+        code: out.status.code().unwrap(),
+    }
+}
+
+fn caelestia_manifest(root: &Path) -> String {
+    format!(
+        r#"name = "caelestia"
+root = "{}"
+requires = ["hyprland", "foot"]
+hypr_dialect = "conf"
+volatile = ["**/fish_variables", "shell.json"]
+generated = ["hypr/scheme/current.conf"]
+
+[[path]]
+dest       = "~/.config/hypr"
+src        = "hypr"
+kind       = "dir-link"
+activation = "relogin"
+
+[[path]]
+dest       = "~/.config/foot"
+src        = "foot"
+kind       = "dir-link"
+activation = "relogin"
+
+[[path]]
+dest       = "~/.config/fuzzel"
+src        = "fuzzel"
+kind       = "generated"
+activation = "never"
+"#,
+        root.display()
+    )
+}
+
+/// A fixture with one by-reference profile whose payload really exists.
+fn with_caelestia(case: &str) -> Fixture {
+    let f = Fixture::new(case);
+    let root = f.dir("rice/caelestia");
+    f.dir("rice/caelestia/hypr");
+    f.dir("rice/caelestia/foot");
+    f.profile("caelestia", &caelestia_manifest(&root));
+    f
+}
+
+#[test]
+fn list_with_no_profiles() {
+    let f = Fixture::new("cli_list_empty");
+    let r = run(&f, &["list"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    insta::assert_snapshot!(r.stdout);
+}
+
+#[test]
+fn list_a_by_reference_profile() {
+    let f = with_caelestia("cli_list");
+    let r = run(&f, &["list"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    insta::assert_snapshot!(r.stdout);
+}
+
+#[test]
+fn show_a_profile() {
+    let f = with_caelestia("cli_show");
+    let r = run(&f, &["show", "caelestia"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    insta::assert_snapshot!(r.stdout);
+}
+
+#[test]
+fn show_a_profile_that_does_not_exist() {
+    let f = Fixture::new("cli_show_missing");
+    let r = run(&f, &["show", "nope"]);
+    assert_eq!(r.code, ricepilot::error::ExitCode::Refused as i32);
+    insta::assert_snapshot!(r.stderr);
+}
+
+#[test]
+fn a_profile_name_cannot_escape_the_profiles_directory() {
+    let f = Fixture::new("cli_show_escape");
+    let r = run(&f, &["show", "../../../etc"]);
+    assert_eq!(r.code, ricepilot::error::ExitCode::Refused as i32);
+    insta::assert_snapshot!(r.stderr);
+}
+
+#[test]
+fn status() {
+    let f = with_caelestia("cli_status");
+    let r = run(&f, &["status"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    insta::assert_snapshot!(r.stdout);
+}
+
+/// The pre-`init` case on a machine whose rice already exists: the links are
+/// there, but nothing is registered, so every one of them is correctly
+/// reported as foreign and the switch is declined.
+#[test]
+fn plan_against_existing_unregistered_links() {
+    let f = with_caelestia("cli_plan_foreign");
+    let root = f.path("rice/caelestia");
+    f.clear(".config/hypr");
+    f.clear(".config/foot");
+    f.link(".config/hypr", &root.join("hypr"));
+    f.link(".config/foot", &root.join("foot"));
+
+    let r = run(&f, &["plan", "caelestia"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    insta::assert_snapshot!(r.stdout);
+}
+
+/// Nothing at either destination: the switch is a pair of plain link
+/// creations, with nothing to displace.
+#[test]
+fn plan_onto_absent_destinations() {
+    let f = with_caelestia("cli_plan_absent");
+    f.clear(".config/hypr");
+    f.clear(".config/foot");
+
+    let r = run(&f, &["plan", "caelestia"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    insta::assert_snapshot!(r.stdout);
+}
+
+/// A real directory at a managed destination — what a rice installer leaves
+/// behind. Refused, with the reason.
+#[test]
+fn plan_against_a_real_directory() {
+    let f = with_caelestia("cli_plan_realdir");
+    f.clear(".config/hypr");
+    f.clear(".config/foot");
+    f.dir(".config/hypr");
+    f.dir(".config/foot");
+
+    let r = run(&f, &["plan", "caelestia"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    insta::assert_snapshot!(r.stdout);
+}
+
+#[test]
+fn a_mutating_command_is_not_implemented_and_says_so() {
+    let f = with_caelestia("cli_switch");
+    let r = run(&f, &["switch", "caelestia", "--commit"]);
+    assert_eq!(r.code, ricepilot::error::ExitCode::NotPossible as i32);
+    insta::assert_snapshot!(r.stderr);
+}
+
+/// M1 ships no mutating command at all, so no fixture destination may change.
+/// This asserts the negative directly rather than trusting the dispatch table.
+#[test]
+fn no_read_only_command_changes_anything() {
+    let f = with_caelestia("cli_readonly");
+    f.clear(".config/hypr");
+    let dest = f.dir(".config/hypr");
+    let before = std::fs::symlink_metadata(&dest).unwrap();
+
+    for args in [
+        vec!["list"],
+        vec!["status"],
+        vec!["show", "caelestia"],
+        vec!["plan", "caelestia"],
+    ] {
+        run(&f, &args);
+    }
+
+    let after = std::fs::symlink_metadata(&dest).unwrap();
+    assert_eq!(before.ino(), after.ino());
+    assert_eq!(before.modified().unwrap(), after.modified().unwrap());
+    assert!(
+        std::fs::read_dir(f.path(".config")).unwrap().all(|e| !e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains("rp-tmp")),
+        "a read-only command left a staged link behind"
+    );
+}
+
+use std::os::unix::fs::MetadataExt as _;

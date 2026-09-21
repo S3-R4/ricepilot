@@ -4,9 +4,14 @@
 //!
 //! Implemented in M1 (read-only commands) and M5 (the rest).
 
+pub mod paths;
+pub mod render;
+
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+
+use crate::{Error, Result};
 
 #[derive(Debug, Parser)]
 #[command(name = "ricepilot", version, about, long_about = None)]
@@ -82,7 +87,119 @@ pub enum Command {
 }
 
 pub fn main() -> ExitCode {
-    let _cli = Cli::parse();
-    eprintln!("ricepilot: not implemented yet (milestone M0: scaffold only)");
-    ExitCode::from(3)
+    let cli = Cli::parse();
+    match run(cli.command) {
+        Ok(out) => {
+            print!("{out}");
+            ExitCode::from(crate::error::ExitCode::Ok as u8)
+        }
+        Err(e) => {
+            eprintln!("ricepilot: {e}");
+            ExitCode::from(e.exit_code() as u8)
+        }
+    }
+}
+
+/// Dispatch. Commands return their whole output as a `String` rather than
+/// printing as they go, so a command that fails half way through cannot have
+/// already printed half an answer.
+pub fn run(command: Command) -> Result<String> {
+    let paths = paths::Paths::from_env()?;
+    match command {
+        Command::List => cmd_list(&paths),
+        Command::Show { profile } => cmd_show(&paths, &profile),
+        Command::Status => cmd_status(&paths),
+        Command::Plan { profile } => cmd_plan(&paths, &profile),
+
+        // Mutating commands and the remaining read-only ones arrive in later
+        // milestones. Saying so and exiting non-zero is the honest answer;
+        // a stub that silently did nothing would be worse than an error.
+        other => Err(Error::NotPossible {
+            anchor: "not-yet-implemented",
+            why: format!(
+                "`{}` is not implemented yet; M1 ships the read-only commands \
+                 plan, status, list and show",
+                subcommand_name(&other)
+            ),
+        }),
+    }
+}
+
+fn subcommand_name(c: &Command) -> &'static str {
+    match c {
+        Command::Init { .. } => "init",
+        Command::Status => "status",
+        Command::Doctor => "doctor",
+        Command::List => "list",
+        Command::Show { .. } => "show",
+        Command::Capture { .. } => "capture",
+        Command::Adopt { .. } => "adopt",
+        Command::Plan { .. } => "plan",
+        Command::Switch { .. } => "switch",
+        Command::Rollback { .. } => "rollback",
+        Command::Recover { .. } => "recover",
+        Command::Rescue => "rescue",
+        Command::Verify { .. } => "verify",
+        Command::Diff { .. } => "diff",
+        Command::Gc { .. } => "gc",
+    }
+}
+
+fn cmd_list(paths: &paths::Paths) -> Result<String> {
+    let profiles = paths::load_all(paths)?;
+    Ok(render::list(&profiles, &paths.home))
+}
+
+fn cmd_show(paths: &paths::Paths, name: &str) -> Result<String> {
+    let profile = paths::load(paths, name)?;
+    let root = profile.root(&paths.home);
+    Ok(render::show(
+        &profile.name,
+        &profile.manifest,
+        &root,
+        &paths.home,
+    ))
+}
+
+fn cmd_status(paths: &paths::Paths) -> Result<String> {
+    let profiles = paths::load_all(paths)?;
+    let ledger_present = crate::ops::read::lstat(&paths.ledger_path())?.is_some();
+    Ok(render::status(paths, &profiles, ledger_present))
+}
+
+fn cmd_plan(paths: &paths::Paths, name: &str) -> Result<String> {
+    let profile = paths::load(paths, name)?;
+    let targets = profile.manifest.targets(&profile.dir, &paths.home);
+    let dests: Vec<std::path::PathBuf> = targets.iter().map(|t| t.dest.clone()).collect();
+
+    // Every registered profile's root counts, not just this one's: a link
+    // pointing into the profile we are switching *away* from is still one of
+    // ours, and must not be misread as foreign.
+    let all = paths::load_all(paths)?;
+    let ownership = crate::observe::Ownership {
+        profile_roots: all.iter().map(|p| p.root(&paths.home)).collect(),
+        // M3 fills this from state/ledger.toml. Until then the predicate's
+        // third fact can never hold, which is why NO_LEDGER_NOTE is printed.
+        entries: Vec::new(),
+    };
+
+    let observed = crate::observe::observe(&dests, &ownership)?;
+    let attic = paths.attic_dir();
+    let attic_dev = crate::ops::read::dev_of_nearest_existing_ancestor(&attic)?;
+    let ctx = crate::plan::PlanContext::new(paths.home.clone(), attic, attic_dev);
+    let plan = crate::plan::plan(&observed, &targets, &ctx);
+
+    let mut out = render::plan(&profile.name, &observed, &plan);
+
+    // The note explains why a link that looks right is called foreign. It is
+    // only printed when that actually happened, so it never contradicts a
+    // plan that has no foreign link in it.
+    let ledger_present = crate::ops::read::lstat(&paths.ledger_path())?.is_some();
+    let any_foreign = observed
+        .iter()
+        .any(|o| matches!(o.shape, crate::observe::Shape::ForeignLink { .. }));
+    if !ledger_present && any_foreign {
+        out.push_str(render::NO_LEDGER_NOTE);
+    }
+    Ok(out)
 }

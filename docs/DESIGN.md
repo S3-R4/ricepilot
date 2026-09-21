@@ -52,15 +52,16 @@ name = "caelestia"
 root = "/home/u/.local/share/caelestia"   # optional: by-reference profile
 requires = ["hyprland", "foot", "fish"]   # checked with `pacman -Q`, never installed
 hypr_dialect = "conf"                     # "conf" | "lua"; ≥0.55 may use hyprland.lua
+volatile = ["**/fish_variables", "shell.json", "**/*.log"]
+generated = ["hypr/scheme/current.conf", "btop/themes"]
 
+# Every table-valued key must come after the scalar ones: in TOML a bare key
+# written below a [[path]] header belongs to that table, not to the document.
 [[path]]
 dest       = "~/.config/hypr"
 src        = "hypr"                       # relative to the profile root
 kind       = "dir-link"                   # dir-link | file-copy | generated | volatile
 activation = "relogin"                    # relogin | live | never
-
-volatile = ["**/fish_variables", "shell.json", "**/*.log"]
-generated = ["hypr/scheme/current.conf", "btop/themes"]
 ```
 
 * `kind` — v1 activates **`dir-link` only**. `file-copy` (copy-deploy with a

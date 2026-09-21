@@ -1,0 +1,26 @@
+---
+source: tests/plan_snapshots.rs
+expression: "ricepilot::cli::render::plan(\"new\", &obs, &p)"
+---
+plan: switch to profile `new`
+
+observed:
+  owned link     /home/u/.config/hypr
+  owned link     /home/u/.config/foot
+  owned link     /home/u/.config/btop
+
+would apply 11 operation(s):
+  stage link   /home/u/.config/hypr.rp-tmp-0 -> /home/u/.local/share/ricepilot/profiles/new/hypr
+  stage link   /home/u/.config/foot.rp-tmp-1 -> /home/u/.local/share/ricepilot/profiles/new/foot
+  stage link   /home/u/.config/btop.rp-tmp-2 -> /home/u/.local/share/ricepilot/profiles/new/btop
+  exchange     /home/u/.config/hypr <-> /home/u/.config/hypr.rp-tmp-0
+  exchange     /home/u/.config/foot <-> /home/u/.config/foot.rp-tmp-1
+  exchange     /home/u/.config/btop <-> /home/u/.config/btop.rp-tmp-2
+  to attic     /home/u/.config/hypr.rp-tmp-0 -> <attic>/home/u/.config/hypr
+  to attic     /home/u/.config/foot.rp-tmp-1 -> <attic>/home/u/.config/foot
+  to attic     /home/u/.config/btop.rp-tmp-2 -> <attic>/home/u/.config/btop
+  fsync dir    /home/u/.config
+  fsync dir    /home/u/.local/state/ricepilot/attic/20260921T120000Z
+
+nothing has been changed. re-run with --commit to apply.
+a switch takes effect at the next login; it does not touch the running session.

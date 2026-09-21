@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: r.stderr
+---
+ricepilot: profile `nope`: no such profile. expected a directory at <HOME>/.local/share/ricepilot/profiles/nope

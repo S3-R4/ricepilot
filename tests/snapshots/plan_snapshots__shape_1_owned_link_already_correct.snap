@@ -1,0 +1,10 @@
+---
+source: tests/plan_snapshots.rs
+expression: "render(\"hypr\", Shape::OwnedLink { target: src(\"new\", \"hypr\") })"
+---
+plan: switch to profile `new`
+
+observed:
+  owned link     /home/u/.config/hypr
+
+nothing to do: every destination already matches.

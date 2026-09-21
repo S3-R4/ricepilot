@@ -34,6 +34,11 @@ pub enum Error {
     #[error("not possible: {why} [see docs/NOT-POSSIBLE.md#{anchor}]")]
     NotPossible { anchor: &'static str, why: String },
 
+    /// A `profile.toml` is malformed or declares something v1 will not do.
+    /// Nothing has been touched, so this is a refusal, not a failure.
+    #[error("profile `{profile}`: {detail}")]
+    Manifest { profile: String, detail: String },
+
     #[error("another ricepilot holds {path}")]
     Locked { path: PathBuf },
 
@@ -48,7 +53,7 @@ pub enum Error {
 impl Error {
     pub fn exit_code(&self) -> ExitCode {
         match self {
-            Error::Refused { .. } => ExitCode::Refused,
+            Error::Refused { .. } | Error::Manifest { .. } => ExitCode::Refused,
             Error::NotPossible { .. } => ExitCode::NotPossible,
             Error::Locked { .. } => ExitCode::Locked,
             Error::Io { .. } => ExitCode::Failed,
