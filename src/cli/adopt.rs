@@ -16,14 +16,19 @@
 //!    deliberately: it is a write into ricepilot's own data directory rather
 //!    than a mutation of the live machine, and the link the journal describes
 //!    cannot be journalled against a source that does not exist yet (D48).
-//! 4. Write and fsync the journal — the file and its directory — naming the
+//! 4. Add the path to the profile's manifest, so the ledger row this
+//!    creates and the manifest a later `switch` reads agree about who owns
+//!    it. Without it, the very next `switch <profile>` would see a ledger
+//!    entry the target state does not include and *retire* the link adopt
+//!    just made (D51).
+//! 5. Write and fsync the journal — the file and its directory — naming the
 //!    directory's `(dev, ino)`, the staging name and the attic slot.
-//! 5. Stage the link, exchange it with the directory, move the directory to
+//! 6. Stage the link, exchange it with the directory, move the directory to
 //!    the attic, fsync.
-//! 6. Record the ledger row and the generation, regenerate `rescue.sh`, and
+//! 7. Record the ledger row and the generation, regenerate `rescue.sh`, and
 //!    retire the journal last (D25).
 //!
-//! A crash anywhere from step 4 on is resolved by `recover`, which reads the
+//! A crash anywhere from step 5 on is resolved by `recover`, which reads the
 //! filesystem and decides forward or abandon — including the window in which
 //! the user's real directory is sitting at a staging name.
 
@@ -243,7 +248,16 @@ pub fn run_with(
         stats = Some(s);
     }
 
-    // ---- Steps 4 onward. From here a crash is `recover`'s problem. ----
+    // ---- Step 4: the manifest. Before the journal, because a crash here
+    // leaves a manifest declaring a destination that is still a real
+    // directory — which `plan` reads as shape 3 and refuses, honestly. A
+    // crash the other way round would leave a ledger row and a link that no
+    // manifest claims, and the next `switch` would retire it (D51).
+    let manifest_path = paths.manifest_path(&a.profile);
+    let updated = declare_path(&read::slurp(&manifest_path)?, &a, &paths.home)?;
+    mutate::write_atomic(&manifest_path, updated.as_bytes())?;
+
+    // ---- Steps 5 onward. From here a crash is `recover`'s problem. ----
     mutate::make_dirs(&paths.state)?;
     let mode = mutate::probe_exchange(&paths.state)?;
     mutate::make_dirs(&a.attic)?;
@@ -300,6 +314,33 @@ pub fn run_with(
         text: render::adopt_done(&a, stats.as_ref(), new_id, &script),
         code: ExitCode::Ok,
     })
+}
+
+/// Append a `[[path]]` block for this adoption to a profile's manifest.
+///
+/// Appended as text rather than re-serialised from the parsed value: the
+/// file belongs to the user, who may have edited it, added comments or
+/// ordered it to taste, and round-tripping it through a serialiser would
+/// quietly throw all of that away. A new `[[path]]` at the end of the file
+/// is always valid — anything trailing already belongs to the last table.
+///
+/// The result is parsed before it is returned, so a manifest ricepilot could
+/// not read is never one it writes. That is also what catches a destination
+/// the manifest already declares: `manifest::validate` refuses a duplicate
+/// `dest`, and its message names it.
+fn declare_path(existing: &str, a: &Adoption, home: &std::path::Path) -> Result<String> {
+    let mut s = existing.to_string();
+    if !s.ends_with('\n') {
+        s.push('\n');
+    }
+    s.push_str(&format!(
+        "\n# added by `ricepilot adopt`.\n[[path]]\ndest       = \"{}\"\nsrc        = \
+         \"{}\"\nkind       = \"dir-link\"\nactivation = \"relogin\"\n",
+        super::capture::tildify(&a.dest, home),
+        a.leaf
+    ));
+    crate::manifest::parse(&s)?;
+    Ok(s)
 }
 
 impl Adoption {

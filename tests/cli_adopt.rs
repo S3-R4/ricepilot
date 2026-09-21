@@ -211,6 +211,51 @@ fn a_committed_adopt_links_the_path_and_the_directory_survives_in_the_attic() {
     );
 }
 
+/// The manifest and the ledger must agree after an adopt. If the manifest
+/// did not gain the path, the very next `switch` into the same profile
+/// would find a ledger entry the target state does not include and *retire*
+/// the link adopt had just created — displacing it into the attic and
+/// leaving the destination empty (D51).
+#[test]
+fn after_an_adopt_the_profile_claims_the_path_and_a_switch_is_a_no_op() {
+    let m = machine("declares");
+    assert_eq!(
+        run(
+            &m.f,
+            &["adopt", "~/.config/hypr", "--into", "mine", "--commit"],
+            Some("y")
+        )
+        .code,
+        0
+    );
+
+    let shown = run(&m.f, &["show", "mine"], None);
+    assert_eq!(shown.code, 0, "{}", shown.stderr);
+    insta::assert_snapshot!("adopt_then_show", shown.stdout);
+
+    // And the switch that would have retired it has nothing to do instead.
+    let planned = run(&m.f, &["plan", "mine"], None);
+    assert_eq!(planned.code, 0, "{}", planned.stderr);
+    assert!(
+        planned.stdout.contains("owned link"),
+        "the adopted link must read as owned:\n{}",
+        planned.stdout
+    );
+    assert!(
+        planned.stdout.contains("nothing to do"),
+        "and there must be nothing to switch:\n{}",
+        planned.stdout
+    );
+
+    let switched = run(&m.f, &["switch", "mine", "--commit"], None);
+    assert_eq!(switched.code, 0, "{}", switched.stderr);
+    assert_eq!(
+        read::readlink(&m.f.path(".config/hypr")).unwrap(),
+        m.profile.join("hypr"),
+        "the switch retired the link adopt had just made"
+    );
+}
+
 /// Where the displaced directory landed. The attic directory is named after
 /// the operation's id, which is a timestamp, so the test finds it rather
 /// than predicting it.

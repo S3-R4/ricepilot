@@ -1,0 +1,18 @@
+---
+source: tests/refusal_snapshots_m4.rs
+expression: s
+---
+copying onto something that is already there
+  exit 2  refusing: something is already here. ricepilot copies into a name nothing occupies, so that an interrupted earlier attempt is something you can look at rather than something this overwrote (<HOME>/rice/occupied) [R2]
+
+copying a tree into itself
+  exit 2  refusing: is inside <HOME>/rice/src, so copying one into the other would never finish (<HOME>/rice/src/inner) [R5]
+
+copying something that is not there
+  exit 2  refusing: there is nothing here to copy (<HOME>/rice/nothing) [R5]
+
+copying a tree with a socket in it
+  exit 2  refusing: is neither a directory, a regular file nor a symlink. ricepilot will not pretend a copy of a socket or a fifo is the same object; declare it volatile or move it aside (<HOME>/rice/src/app.sock) [R5]
+
+recovering an adopt whose directory was replaced underneath it
+  exit 2  refusing: an interrupted adopt left this path as a different directory (inode <n>, not the inode <n> that was confirmed), which is neither the directory that was adopted nor the link it was becoming. something else changed it while ricepilot was not looking, and ricepilot will not guess what (<HOME>/.config/hypr) [R4]

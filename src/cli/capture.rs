@@ -172,7 +172,8 @@ fn render_manifest(name: &str, sources: &[Source], home: &Path) -> String {
     let _ = writeln!(s, "# written by `ricepilot capture {name}`.");
     let _ = writeln!(
         s,
-        "# ricepilot reads this file and never rewrites it; it is yours to edit."
+        "# it is yours to edit. ricepilot only rewrites it to append a [[path]] when you\n\
+         # `ricepilot adopt` something into this profile."
     );
     let _ = writeln!(s, "name = \"{name}\"");
     let _ = writeln!(s, "volatile = []");

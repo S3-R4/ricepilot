@@ -19,7 +19,8 @@ into:    <HOME>/.local/share/ricepilot/profiles/mine
 
 profile.toml as it will be written:
   # written by `ricepilot capture mine`.
-  # ricepilot reads this file and never rewrites it; it is yours to edit.
+  # it is yours to edit. ricepilot only rewrites it to append a [[path]] when you
+  # `ricepilot adopt` something into this profile.
   name = "mine"
   volatile = []
   generated = []

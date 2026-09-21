@@ -940,3 +940,45 @@ listed immediately above the question, and the manifest is a file the user
 owns and can edit. Asking twenty times for a decision that changes no path
 would train someone to answer without reading, which is the failure mode R6
 exists to avoid.
+
+## D51 — `adopt` adds the path to the profile's manifest, or the next switch undoes it
+
+*M4.* Found by asking what happens *after* an adopt, which is the question
+this milestone's riskiest bug was hiding behind.
+
+`adopt` writes a ledger row saying ricepilot owns the destination. It did
+not, at first, touch the profile's `profile.toml`. So the profile's target
+state did not include that destination — and `switch <that profile>` builds
+its retirement list from exactly that difference: every path the ledger owns
+that the target state does not claim (D36). The very next switch into the
+profile you had just adopted into would therefore **retire the link adopt
+had made**, displacing it into the attic and leaving the destination empty.
+No delete, nothing lost, every bit of it reported — and completely wrong.
+
+So `adopt` appends a `[[path]]` block to the manifest, before the journal.
+Before, because a crash between the manifest and the link leaves a manifest
+declaring a destination that is still a real directory, which `plan` reads
+as shape 3 and refuses — honest and harmless. The other order leaves a link
+and a ledger row that no manifest claims, which is the footgun above.
+
+It is appended as **text**, not re-serialised from the parsed value. The
+file belongs to the user: they may have edited it, commented it or ordered
+it to taste, and round-tripping it through a serialiser would throw all of
+that away silently. A new `[[path]]` at the end of a TOML file is always
+valid, because anything trailing already belongs to the last table. The
+result is parsed before it is written, which is also what catches a
+destination the manifest already declares — `manifest::validate` refuses a
+duplicate `dest` and names it.
+
+This is the one place ricepilot rewrites a file inside a profile, and it is
+the profile's *manifest* rather than its content, for a profile whose
+payload ricepilot owns. R3 is about profile content: never templating,
+never `sed`-ing, never writing through a symlink, never running an
+installer. `capture` already writes this file; `adopt` extending it is the
+same act. A by-reference profile is refused outright, so the user's rice
+clone is never written to either way. The generated manifest's own comment
+says this, rather than claiming ricepilot never rewrites it.
+
+The regression test is the sequence, not the mechanism: adopt, then `plan`
+must read the destination as an owned link with nothing to do, and
+`switch --commit` must leave the link exactly where adopt put it.

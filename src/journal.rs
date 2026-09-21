@@ -656,8 +656,7 @@ fn dir_slot_of(path: &Path, a: &Adopt) -> Result<DirSlot> {
                 // into the attic would displace something ricepilot never
                 // looked at.
                 DirSlot::Foreign(format!(
-                    "a different directory from the one that was adopted (inode {} rather than \
-                     {})",
+                    "a different directory (inode {}, not the inode {} that was confirmed)",
                     m.ino, a.dir_ino
                 ))
             }
@@ -690,6 +689,21 @@ fn slots_of_adopt(a: &Adopt) -> Result<DirSlots> {
 }
 
 /// Which side of the adopt this destination is on.
+/// An adopt's own version of [`foreign`]. The switch wording — "neither the
+/// profile it was on nor the one it was moving to" — describes a pair of
+/// link targets, and an adopt's two states are a directory and a link.
+fn foreign_adopt(path: &Path, detail: &str) -> Error {
+    Error::Refused {
+        rule: "R4",
+        path: path.to_path_buf(),
+        why: format!(
+            "an interrupted adopt left this path as {detail}, which is neither the directory \
+             that was adopted nor the link it was becoming. something else changed it while \
+             ricepilot was not looking, and ricepilot will not guess what"
+        ),
+    }
+}
+
 fn adopt_side(a: &Adopt, s: &DirSlots) -> Result<Side> {
     match &s.dest {
         DirSlot::NewLink => Ok(Side::New),
@@ -699,7 +713,7 @@ fn adopt_side(a: &Adopt, s: &DirSlots) -> Result<Side> {
         // make an adopted destination absent — the atomic path never does,
         // and ricepilot has no delete.
         DirSlot::Absent => Ok(Side::InFlight),
-        DirSlot::Foreign(detail) => Err(foreign(&a.dest, detail)),
+        DirSlot::Foreign(detail) => Err(foreign_adopt(&a.dest, detail)),
     }
 }
 
