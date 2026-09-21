@@ -497,3 +497,27 @@ Two further calls inside the comparison:
 * A file rewritten with byte-identical content is `Touched`, reported in its
   own paragraph and excluded from the drift exit code. caelestia's theme engine
   does this constantly. It is worth saying (R7) and it is not drift.
+
+## D35 — A generation records absences, and the first switch writes generation 0000
+
+*M3.* A generation is the complete link topology of every managed destination
+after a switch: per destination, the target its link points at **or** the fact
+that nothing is there. Recording the absence is not tidiness. It is what tells
+`rollback` that a destination the previous generation did not have is one it
+must displace rather than leave behind — and leaving one behind silently is the
+failure D21 names.
+
+The first switch writes *two* generations: `0000` from the pre-switch
+observation, then `0001` from the post-switch one. Without `0000` the sentence
+"rollback re-applies generation NNNN-1" would have a special case at the only
+moment a new user is likely to need it, and a special case in the recovery
+ladder is a special case nobody has tested on the day it matters. Generation
+`0000`'s profile field is the literal string `(the state before the first
+switch)`, because it belongs to no profile ricepilot put there.
+
+`current` is a real file written with `write_atomic`, and `current()` refuses
+to read one that is a symlink. The file exists to survive a switch that went
+wrong; a switch that goes wrong is one that did something unintended to a
+symlink, so the file that says how to get back must not be one. Refusing
+rather than following also means the check cannot be defeated by pointing the
+pointer at itself.
