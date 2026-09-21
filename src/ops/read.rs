@@ -57,7 +57,9 @@ fn meta_of(st: &rustix::fs::Stat) -> Meta {
     }
 }
 
-fn io(context: impl Into<String>, e: rustix::io::Errno) -> Error {
+/// Shared by [`super::mutate`] so both sides of the boundary report a syscall
+/// failure the same way.
+pub(super) fn io(context: impl Into<String>, e: rustix::io::Errno) -> Error {
     Error::Io {
         context: context.into(),
         source: std::io::Error::from_raw_os_error(e.raw_os_error()),
@@ -68,7 +70,7 @@ fn io(context: impl Into<String>, e: rustix::io::Errno) -> Error {
 /// component. Refuses anything relative or containing `.`/`..`: a path with a
 /// `..` in it cannot be walked safely component-by-component, because the
 /// meaning of `..` depends on what the previous component resolved to.
-fn split_absolute(path: &Path) -> Result<(Vec<&OsStr>, &OsStr)> {
+pub(super) fn split_absolute(path: &Path) -> Result<(Vec<&OsStr>, &OsStr)> {
     let mut parts: Vec<&OsStr> = Vec::new();
     let mut saw_root = false;
     for c in path.components() {
@@ -100,7 +102,7 @@ fn split_absolute(path: &Path) -> Result<(Vec<&OsStr>, &OsStr)> {
 /// A symlinked intermediate component is a refusal rather than something we
 /// quietly follow: if `~/.config` is a link, every conclusion we would draw
 /// about what lives under it is a conclusion about somewhere else.
-fn walk(components: &[&OsStr]) -> Result<OwnedFd> {
+pub(super) fn walk(components: &[&OsStr]) -> Result<OwnedFd> {
     let mut fd = rustix::fs::open(
         "/",
         OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,

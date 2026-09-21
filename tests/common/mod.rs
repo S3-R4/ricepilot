@@ -25,18 +25,46 @@ pub struct Fixture {
 }
 
 impl Fixture {
-    /// Build (or rebuild from empty) the tree for `case`.
+    /// Build (or rebuild from empty) the tree for `case` in the `m1` group.
     pub fn new(case: &str) -> Self {
-        let home = fixture_root().join("m1").join(case).join("home");
-        // Rebuilding under a fresh name per run would leave litter; instead
-        // each case owns a stable directory whose *contents* are recreated.
-        // Nothing here removes anything — the case directory is simply
-        // overwritten, and a stale entry from an older run would fail the
-        // test loudly rather than silently.
+        Self::new_in("m1", case)
+    }
+
+    /// Same, in a named group, so one milestone's fixtures cannot collide with
+    /// another's.
+    pub fn new_in(group: &str, case: &str) -> Self {
+        let home = fixture_root().join(group).join(case).join("home");
+        // Each case owns a stable directory, and that directory starts empty:
+        // a crash-injection case is *defined* by the exact state it starts
+        // from, so a leftover staged link from the previous run would make a
+        // test pass or fail for a reason that has nothing to do with the code.
+        // D18 covers why the harness may do this and the crate may not.
+        let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join(".config")).unwrap();
         std::fs::create_dir_all(home.join(".local/share/ricepilot/profiles")).unwrap();
         std::fs::create_dir_all(home.join(".local/state/ricepilot")).unwrap();
         Self { home }
+    }
+
+    /// `~/.local/state/ricepilot`, where the journal, the attic and the
+    /// `RENAME_EXCHANGE` probe links live.
+    pub fn state(&self) -> PathBuf {
+        self.path(".local/state/ricepilot")
+    }
+
+    /// A fresh attic directory for one switch, as `switch` would name it.
+    pub fn attic(&self, ts: &str) -> PathBuf {
+        let p = self.state().join("attic").join(ts);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    /// The `(dev, ino)` of whatever is at `rel`, without following a final
+    /// symlink. Used to assert a pre-existing target was never touched.
+    pub fn ident(&self, rel: &str) -> (u64, u64) {
+        let m = std::fs::symlink_metadata(self.path(rel)).unwrap();
+        use std::os::unix::fs::MetadataExt as _;
+        (m.dev(), m.ino())
     }
 
     pub fn path(&self, rel: &str) -> PathBuf {
@@ -87,6 +115,10 @@ impl Fixture {
     pub fn env(&self) -> Vec<(String, String)> {
         vec![
             ("RICEPILOT_HOME".into(), self.home.display().to_string()),
+            (
+                "RICEPILOT_RUNTIME_DIR".into(),
+                self.home.join(".run").display().to_string(),
+            ),
             (
                 "RICEPILOT_DATA_DIR".into(),
                 self.home
