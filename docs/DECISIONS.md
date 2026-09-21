@@ -825,3 +825,80 @@ writes, and would have made `side_of`'s refusal for a real directory
 conditional on which command wrote the journal. That refusal is load-bearing
 for `switch`: a real directory at a managed destination is the signature of an
 installer having run, and `switch` must keep refusing it.
+
+## D47 — There is no `--yes`. The confirmation always runs; only the widget differs
+
+*M4.* `init` and `adopt` require per-path confirmation ([SAFETY.md](SAFETY.md)
+R6), and every message ricepilot prints is snapshot-tested — which means the
+prompts need a path a test can drive.
+
+The obvious answer is a `--yes` flag, and it is the wrong one. A flag a test
+can pass is a flag a user can pass; R6 exists precisely so a human sees what
+is about to be touched; and a confirmation skipped in every test is one whose
+first real execution happens on the user's machine, with their configuration
+under it.
+
+So there is no bypass. The confirmation always runs, and only the *widget*
+differs:
+
+* stdin is a terminal → an `inquire` prompt, defaulting to no.
+* stdin is not a terminal → the same question text is printed and one line is
+  read back.
+
+Both share `question_text`, both default to no, and both treat end-of-input,
+an empty line and anything that is not `y`/`yes` as no. A test pipes an
+answer in and therefore exercises the real question, the real parsing and the
+real refusal. What it does not exercise is `inquire`'s key handling, which
+belongs to `inquire`; R7 says name an untested path rather than imply it is
+covered, so the module says so and that branch is kept to one call.
+
+The non-terminal path also echoes the answer it took. Someone reading a
+transcript of a command that moved their configuration should be able to see
+what it was told, not only what it did.
+
+## D48 — `adopt` copies before it journals
+
+*M4.* R4 says the journal is fsync'd before the first effect, and `adopt`
+copies a directory into the profile *before* it writes one. Two reasons, and
+the second is the load-bearing one.
+
+The copy is not an effect on the live machine. It writes into ricepilot's own
+data directory, at a name that did not exist; nothing in `~/.config` changes,
+no link is created, and the user's directory is untouched and unread-from
+except to be read. The states a journal exists to resolve — a destination
+half way between two shapes — cannot arise from it.
+
+And the journal *cannot* be written first. It records `new_target`, the copy
+the new link will point at, and D42 refuses to point a managed destination at
+something that does not exist. A journal naming a target that is not there
+yet would describe a state recovery must never drive the machine into.
+
+So the order is: confirm, copy, hash-verify, journal, stage, exchange, attic.
+A crash before the journal leaves a copy in the profile and a live machine
+nobody touched — which the next attempt refuses, naming the copy, rather than
+writing over it (R2 again: there is no delete, so a partial copy has to be
+something you can look at).
+
+## D49 — `rollback` does not undo an `adopt`, and the output says so
+
+*M4.* After an adopt, `~/.config/hypr` is a link ricepilot owns and the
+user's real directory is in the attic. A `rollback` re-applies the previous
+generation, which had no entry for that destination — so the retirement rule
+(D36) displaces the *link* into the attic and leaves the path empty. It does
+not bring the directory back, because bringing it back means renaming
+something out of the attic, and nothing in the switch machinery does that.
+
+The choice was between teaching `rollback` to restore from the attic and
+saying plainly what it does. It says plainly what it does. A `rollback` that
+sometimes restores an attic directory and sometimes retires a link, depending
+on which command created the generation, is a command nobody can predict at
+the moment they need it most — and "restore from the attic" is a capability
+with its own failure modes (what if the destination is occupied? what if two
+adopts displaced the same path?) that belongs in `gc`'s neighbourhood, not
+bolted to the switch path.
+
+So: `adopt` records a generation (history stays complete and `status` stays
+truthful), regenerates `rescue.sh` for the generation before it (which has no
+entry for the adopted path, so rescue leaves it alone — correct), and its
+committed output names the attic path, gives the two-command way back by
+hand, and states in as many words that `rollback` will not do it.

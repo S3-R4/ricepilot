@@ -1,0 +1,56 @@
+---
+source: tests/cli_adopt.rs
+expression: s
+---
+--- shape 1  owned link
+exit 0
+adopt: <HOME>/.config/hypr into profile `mine`
+
+observed:
+  owned link     <HOME>/.config/hypr
+
+nothing to do: ricepilot already owns this path. `ricepilot status` lists it.
+
+--- shape 2  foreign link
+exit 2
+adopt: <HOME>/.config/foot into profile `mine`
+
+observed:
+  foreign link   <HOME>/.config/foot
+
+declined. nothing has been changed.
+
+  [R4] <HOME>/.config/foot: is a foreign link, and adopt turns a real directory into a link — it will not replace a link somebody else made. ricepilot has no record of what was at this path before that link existed, so it cannot put anything back if this turns out to be wrong. move it aside yourself and adopt what it pointed at.
+
+--- shape 2  dangling foreign link
+exit 2
+adopt: <HOME>/.config/btop into profile `mine`
+
+observed:
+  dangling foreign link <HOME>/.config/btop
+
+declined. nothing has been changed.
+
+  [R4] <HOME>/.config/btop: is a dangling foreign link, and adopt turns a real directory into a link — it will not replace a link somebody else made. ricepilot has no record of what was at this path before that link existed, so it cannot put anything back if this turns out to be wrong. move it aside yourself and adopt what it pointed at.
+
+--- shape 4  real file
+exit 2
+adopt: <HOME>/.config/starship.toml into profile `mine`
+
+observed:
+  real file      <HOME>/.config/starship.toml
+
+declined. nothing has been changed.
+
+  [R5] <HOME>/.config/starship.toml: is a regular file. v1 activates directory links only; file deployment is v1.1.
+
+--- shape 5  absent
+exit 2
+adopt: <HOME>/.config/waybar into profile `mine`
+
+observed:
+  absent         <HOME>/.config/waybar
+
+declined. nothing has been changed.
+
+  [R4] <HOME>/.config/waybar: would be linked to <HOME>/.local/share/ricepilot/profiles/mine/waybar, which does not exist. ricepilot will not point a managed destination at nothing — a dangling link here is a missing config at the next login, and it would look exactly like a successful switch.

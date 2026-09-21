@@ -153,3 +153,30 @@ impl Fixture {
 pub fn redact(out: &str, fixture: &Fixture) -> String {
     out.replace(&fixture.home.display().to_string(), "<HOME>")
 }
+
+/// Replace every `YYYYMMDDTHHMMSSZ` timestamp with `<TS>`, so snapshots do not
+/// depend on when they were taken. Only the timestamp: the paths around it are
+/// exactly what the user is told, and redacting those would hide the thing
+/// worth reviewing.
+pub fn undate(s: &str) -> String {
+    let b: Vec<char> = s.chars().collect();
+    let is_ts = |i: usize| {
+        i + 16 <= b.len()
+            && b[i..i + 8].iter().all(char::is_ascii_digit)
+            && b[i + 8] == 'T'
+            && b[i + 9..i + 15].iter().all(char::is_ascii_digit)
+            && b[i + 15] == 'Z'
+    };
+    let mut out = String::new();
+    let mut i = 0;
+    while i < b.len() {
+        if is_ts(i) {
+            out.push_str("<TS>");
+            i += 16;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    out
+}

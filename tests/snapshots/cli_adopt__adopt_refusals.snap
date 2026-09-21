@@ -1,0 +1,16 @@
+---
+source: tests/cli_adopt.rs
+expression: s
+---
+into a by-reference profile
+  exit 2  ricepilot: refusing: profile `byref` is by-reference: its root is a directory ricepilot does not own and never writes to. adopt into a profile with its own payload, or `ricepilot capture` the directory into a new one (<HOME>/rice/caelestia) [R3]
+into a profile that does not exist
+  exit 2  ricepilot: profile `nope`: no such profile. expected a directory at <HOME>/.local/share/ricepilot/profiles/nope
+a denylisted destination
+  exit 2    [R4] <HOME>/.ssh: is inside `~/.ssh`, which v1 will not manage under any circumstances.
+a relative path
+  exit 2  ricepilot: refusing: must be an absolute path or start with `~` (config/hypr) [R1]
+a path that is not there
+  exit 2    [R4] <HOME>/.config/nothing: would be linked to <HOME>/.local/share/ricepilot/profiles/mine/nothing, which does not exist. ricepilot will not point a managed destination at nothing — a dangling link here is a missing config at the next login, and it would look exactly like a successful switch.
+a name the profile already holds
+  exit 2    [R3] <HOME>/.config/dup: would be copied into <HOME>/.local/share/ricepilot/profiles/mine/dup, where something already is. ricepilot never writes over a profile's contents, and linking to what is there instead would point this destination at a tree that is not the one being adopted. move it aside, or adopt into a different profile.

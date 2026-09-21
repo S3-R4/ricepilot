@@ -129,6 +129,21 @@ pub enum Refusal {
         dest: PathBuf,
         src: PathBuf,
     },
+    /// Shape 2 under `adopt`. Distinct from [`Refusal::Unowned`] because
+    /// that one's advice is "register it with `ricepilot adopt`", which is
+    /// no help at all when the command being refused *is* adopt.
+    ForeignLinkUnderAdopt {
+        dest: PathBuf,
+        shape: &'static str,
+    },
+    /// `adopt` would copy into a place in the profile that is already
+    /// occupied. ricepilot does not write over a profile's contents (R3),
+    /// and linking to what is there instead would point the destination at a
+    /// tree that is not the one being adopted.
+    ProfileOccupied {
+        dest: PathBuf,
+        src: PathBuf,
+    },
     /// A declared destination that phase A did not observe. A bug rather than
     /// a user error, but the decision table is total and so is this enum:
     /// planning on an incomplete observation is never allowed to proceed.
@@ -146,6 +161,8 @@ impl Refusal {
             | Refusal::Denylisted { .. }
             | Refusal::SourceMissing { .. }
             | Refusal::NotObserved { .. } => "R4",
+            Refusal::ProfileOccupied { .. } => "R3",
+            Refusal::ForeignLinkUnderAdopt { .. } => "R4",
             Refusal::RealFileAtDest { .. }
             | Refusal::SourceNotADirectory { .. }
             | Refusal::VerifyConfigFailed { .. } => "R5",
@@ -228,6 +245,24 @@ impl fmt::Display for Refusal {
                 f,
                 "{}: would be linked to {}, which is not a directory. v1 activates directory \
                  links only.",
+                dest.display(),
+                src.display()
+            ),
+            Refusal::ForeignLinkUnderAdopt { dest, shape } => write!(
+                f,
+                "{}: is a {}, and adopt turns a real directory into a link — it will not \
+                 replace a link somebody else made. ricepilot has no record of what was at \
+                 this path before that link existed, so it cannot put anything back if this \
+                 turns out to be wrong. move it aside yourself and adopt what it pointed at.",
+                dest.display(),
+                shape
+            ),
+            Refusal::ProfileOccupied { dest, src } => write!(
+                f,
+                "{}: would be copied into {}, where something already is. ricepilot never \
+                 writes over a profile's contents, and linking to what is there instead would \
+                 point this destination at a tree that is not the one being adopted. move it \
+                 aside, or adopt into a different profile.",
                 dest.display(),
                 src.display()
             ),
@@ -609,4 +644,175 @@ pub fn plan(observed: &[Observed], target: &[Target], ctx: &PlanContext) -> Plan
     } else {
         Plan::Apply { ops }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The adopt planner
+// ---------------------------------------------------------------------------
+
+/// The `adopt` column of the five-shape table (`docs/DESIGN.md` §5), as a
+/// separate pure function.
+///
+/// It is separate rather than a mode of [`plan`] for one reason: [`plan`]'s
+/// row 3 **refuses a real directory**, and that refusal is load-bearing. A
+/// real directory at a managed destination is the signature of a rice
+/// installer having converted our link back, and silently re-linking would
+/// strand whatever it wrote. `adopt`'s whole purpose is a real directory, so
+/// relaxing row 3 for it would relax it for `switch` too — quietly, in the
+/// one place where the quiet version is dangerous.
+///
+/// | shape | `adopt` |
+/// |---|---|
+/// | 1 owned link | no-op; it is already ours, and the report says so |
+/// | 2 foreign link (dangling included) | refuse: we did not create it |
+/// | 3 real dir | stage, exchange, and the directory goes to the attic |
+/// | 4 real file | refuse: v1 activates directories only |
+/// | 5 absent | create the link, if the profile already holds the source |
+///
+/// The **copy** is not an op here. It happens before the journal is written
+/// and outside the applied plan, because it is a write into ricepilot's own
+/// data directory rather than a mutation of the live machine, and because
+/// the link this plan creates cannot be planned against a source that does
+/// not exist yet (D48). The caller prints it separately.
+pub fn plan_adopt(observed: &Observed, target: &Target, ctx: &PlanContext) -> Plan {
+    let dest = &target.dest;
+    let mut refusals: Vec<Refusal> = Vec::new();
+
+    if let Some(entry) = denylist_hit(dest, &ctx.home) {
+        refusals.push(Refusal::Denylisted {
+            dest: dest.clone(),
+            entry,
+        });
+    }
+    if observed.is_mountpoint {
+        refusals.push(Refusal::Mountpoint { dest: dest.clone() });
+    }
+    if observed.parent_dev != ctx.attic_dev {
+        refusals.push(Refusal::CrossDevice {
+            dest: dest.clone(),
+            from: observed.parent_dev,
+            to: ctx.attic_dev,
+        });
+    }
+    if !refusals.is_empty() {
+        return Plan::Decline { refusals };
+    }
+
+    // What is already at the place in the profile the copy will occupy.
+    let in_profile = ctx
+        .sources
+        .iter()
+        .find(|s| s.src == target.src)
+        .map(|s| s.state);
+
+    match &observed.shape {
+        // Row 1. Already ours. Adopting it again would copy a directory that
+        // is a link into the profile it already points at.
+        Shape::OwnedLink { .. } => Plan::NoOp,
+
+        // Row 2. Including a dangling one: it is still a symlink ricepilot
+        // did not create.
+        Shape::ForeignLink { .. } => Plan::Decline {
+            refusals: vec![Refusal::ForeignLinkUnderAdopt {
+                dest: dest.clone(),
+                shape: observed.shape.as_str(),
+            }],
+        },
+
+        // Row 3. The one shape `switch` refuses and `adopt` exists for.
+        Shape::RealDir => match in_profile {
+            // The profile already holds something at this name. Copying onto
+            // it is not an option (R3: ricepilot does not write over a
+            // profile's contents), and linking to it would point the
+            // destination at a tree that is not the one being adopted.
+            Some(SourceState::Dir) | Some(SourceState::NotADir) => Plan::Decline {
+                refusals: vec![Refusal::ProfileOccupied {
+                    dest: dest.clone(),
+                    src: target.src.clone(),
+                }],
+            },
+            _ => {
+                let staged = temp_name(dest, 0);
+                Plan::Apply {
+                    ops: adopt_ops(dest, &target.src, &staged, ctx),
+                }
+            }
+        },
+
+        // Row 4.
+        Shape::RealFile => Plan::Decline {
+            refusals: vec![Refusal::RealFileAtDest { dest: dest.clone() }],
+        },
+
+        // Row 5. Nothing to copy and nothing to displace — but also nothing
+        // to point at unless the profile already holds the source, and a
+        // managed destination pointing at nothing is D42's refusal.
+        Shape::Absent => match in_profile {
+            Some(SourceState::Dir) => Plan::Apply {
+                ops: vec![
+                    Op::CreateLink {
+                        link_path: dest.clone(),
+                        target: target.src.clone(),
+                    },
+                    Op::FsyncDir {
+                        dir: dest
+                            .parent()
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_else(|| dest.clone()),
+                    },
+                ],
+            },
+            Some(SourceState::NotADir) => Plan::Decline {
+                refusals: vec![Refusal::SourceNotADirectory {
+                    dest: dest.clone(),
+                    src: target.src.clone(),
+                }],
+            },
+            _ => Plan::Decline {
+                refusals: vec![Refusal::SourceMissing {
+                    dest: dest.clone(),
+                    src: target.src.clone(),
+                }],
+            },
+        },
+    }
+}
+
+/// Stage, exchange, displace, fsync — the same four steps a switch takes,
+/// except that what goes to the attic is a directory rather than a link.
+fn adopt_ops(dest: &Path, src: &Path, staged: &Path, ctx: &PlanContext) -> Vec<Op> {
+    let mut ops = vec![
+        Op::CreateTempLink {
+            link_path: staged.to_path_buf(),
+            target: src.to_path_buf(),
+        },
+        Op::Exchange {
+            dest: dest.to_path_buf(),
+            staged: staged.to_path_buf(),
+        },
+        Op::RenameToAttic {
+            from: staged.to_path_buf(),
+            attic_rel: attic_rel(dest),
+        },
+    ];
+    if let Some(p) = dest.parent() {
+        ops.push(Op::FsyncDir {
+            dir: p.to_path_buf(),
+        });
+    }
+    ops.push(Op::FsyncDir {
+        dir: ctx.attic.clone(),
+    });
+    ops
+}
+
+/// The staging name `adopt` uses, exposed so the journal record and the plan
+/// agree about it without either recomputing the other's answer.
+pub fn adopt_staged_name(dest: &Path) -> PathBuf {
+    temp_name(dest, 0)
+}
+
+/// Where an adopted destination's displaced directory lands in the attic.
+pub fn adopt_attic_rel(dest: &Path) -> PathBuf {
+    attic_rel(dest)
 }

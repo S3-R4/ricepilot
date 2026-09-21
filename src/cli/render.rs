@@ -689,3 +689,177 @@ pub fn capture_done(
     );
     s
 }
+
+// ---------------------------------------------------------------------------
+// adopt
+// ---------------------------------------------------------------------------
+
+/// The part of `adopt` that is the same dry-run and committed: what is
+/// there, what would be done to it, and where the original will go. R4's
+/// promise is that this block does not depend on `--commit`, so it is one
+/// function and the flag only changes the verb.
+pub fn adopt_header(a: &super::adopt::Adoption, committing: bool) -> String {
+    let mut s = String::new();
+    let _ = writeln!(
+        s,
+        "adopt: {} into profile `{}`",
+        a.dest.display(),
+        a.profile
+    );
+    let _ = writeln!(s);
+    let _ = writeln!(s, "observed:");
+    let _ = writeln!(
+        s,
+        "  {:<14} {}",
+        a.observed.shape.as_str(),
+        a.dest.display()
+    );
+    if let Some(sv) = &a.survey {
+        let _ = write!(s, "{}", survey_block("  ", sv));
+    }
+    let _ = writeln!(s);
+
+    match &a.plan {
+        Plan::NoOp => {
+            let _ = writeln!(
+                s,
+                "nothing to do: ricepilot already owns this path. `ricepilot status` lists it."
+            );
+        }
+        Plan::Decline { refusals } => {
+            let _ = writeln!(s, "declined. nothing has been changed.");
+            let _ = writeln!(s);
+            let _ = write!(s, "{}", refusal_list(refusals));
+        }
+        Plan::Apply { ops } => {
+            // "about to do", not "applying": with `--commit` this block is
+            // printed *before* the question, and the answer may still be no.
+            let _ = writeln!(
+                s,
+                "{}:",
+                if committing {
+                    "about to do"
+                } else {
+                    "would do"
+                }
+            );
+            if a.copies {
+                let _ = writeln!(
+                    s,
+                    "  copy         {} -> {}",
+                    a.dest.display(),
+                    a.new_target.display()
+                );
+                let _ = writeln!(
+                    s,
+                    "  verify       the copy against the original, with a blake3 manifest"
+                );
+            }
+            for op in ops {
+                let _ = writeln!(s, "  {op}");
+            }
+            let _ = writeln!(s);
+            let _ = writeln!(
+                s,
+                "the directory is **moved** into the attic, not removed. ricepilot has no"
+            );
+            let _ = writeln!(
+                s,
+                "delete, so what is displaced is always still somewhere you can read it."
+            );
+        }
+    }
+    s
+}
+
+/// The question a human answers. One path, named in full, with what happens
+/// to it: R6 exists so a person sees what is about to be touched, and a
+/// question that says "proceed?" shows them nothing.
+pub fn adopt_question(a: &super::adopt::Adoption) -> String {
+    format!(
+        "turn {} into a link into profile `{}`, moving the directory to the attic?",
+        a.dest.display(),
+        a.profile
+    )
+}
+
+pub const ADOPT_UNCOMMITTED: &str = "\nnothing has been changed. re-run with --commit to do \
+it.\n--commit asks you to confirm this path before anything happens; answering anything \
+but\nyes leaves the machine exactly as it is.\n";
+
+/// The committed tail: what happened, where the original directory is, and
+/// how to get it back — which is a rename out of the attic, by hand, because
+/// ricepilot cannot undo an adopt for you (D49).
+pub fn adopt_done(
+    a: &super::adopt::Adoption,
+    stats: Option<&crate::ops::mutate::CopyStats>,
+    generation: u32,
+    script: &Path,
+) -> String {
+    let mut s = String::new();
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "adopted. {} is now a link into profile `{}`.",
+        a.dest.display(),
+        a.profile
+    );
+    let _ = writeln!(s, "this is generation {generation:04}.");
+    if let Some(st) = stats {
+        let _ = writeln!(s);
+        let _ = writeln!(
+            s,
+            "copied into the profile: {} director(ies), {} file(s), {} symlink(s), {} byte(s)",
+            st.dirs, st.files, st.links, st.bytes
+        );
+        let _ = writeln!(s, "{}", reflink_note(st));
+        let _ = writeln!(
+            s,
+            "the copy was compared against the original with a blake3 manifest before the"
+        );
+        let _ = writeln!(s, "directory was moved.");
+    }
+    let _ = writeln!(s);
+    let _ = writeln!(s, "your original directory is at:");
+    let _ = writeln!(
+        s,
+        "  {}",
+        a.attic
+            .join(crate::plan::adopt_attic_rel(&a.dest))
+            .display()
+    );
+    let _ = writeln!(
+        s,
+        "nothing was removed. to undo this, move that directory back yourself:"
+    );
+    let _ = writeln!(
+        s,
+        "  ricepilot recover      (only while something is in flight)"
+    );
+    let _ = writeln!(
+        s,
+        "  mv -T <the path above> {}   after moving the link aside",
+        a.dest.display()
+    );
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "`ricepilot rollback` does not undo an adopt. it re-applies the previous generation,"
+    );
+    let _ = writeln!(
+        s,
+        "which did not have this destination — so it would displace the new link into the"
+    );
+    let _ = writeln!(
+        s,
+        "attic and leave the path empty, not put your directory back."
+    );
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "the rescue script now restores generation {:04}:",
+        generation - 1
+    );
+    let _ = writeln!(s, "  sh {}", script.display());
+    s
+}

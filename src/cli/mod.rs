@@ -4,7 +4,9 @@
 //!
 //! Implemented in M1 (read-only commands) and M5 (the rest).
 
+pub mod adopt;
 pub mod capture;
+pub mod confirm;
 pub mod paths;
 pub mod render;
 pub mod switch;
@@ -154,6 +156,7 @@ pub fn run(command: Command) -> Result<Output> {
             from,
             commit,
         } => capture::run(&paths, &profile, &from, commit),
+        Command::Adopt { path, into, commit } => adopt::run(&paths, &path, &into, commit),
 
         // Mutating commands and the remaining read-only ones arrive in later
         // milestones. Saying so and exiting non-zero is the honest answer;

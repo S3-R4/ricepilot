@@ -1,0 +1,28 @@
+---
+source: tests/cli_adopt.rs
+expression: "format!(\"{}{}\", r.stdout, r.stderr)"
+---
+adopt: <HOME>/.config/hypr into profile `mine`
+
+observed:
+  real directory <HOME>/.config/hypr
+  2 director(ies), 3 file(s), 1 symlink(s), 52 byte(s)
+
+  1 file(s) only their owner can read. a mode-600 file in a config tree is
+  usually a token or a key; consider declaring it `volatile` so its content is
+  not hashed into a manifest:
+    0600  secret.token
+
+about to do:
+  copy         <HOME>/.config/hypr -> <HOME>/.local/share/ricepilot/profiles/mine/hypr
+  verify       the copy against the original, with a blake3 manifest
+  stage link   <HOME>/.config/hypr.rp-tmp-0 -> <HOME>/.local/share/ricepilot/profiles/mine/hypr
+  exchange     <HOME>/.config/hypr <-> <HOME>/.config/hypr.rp-tmp-0
+  to attic     <HOME>/.config/hypr.rp-tmp-0 -> <attic><HOME>/.config/hypr
+  fsync dir    <HOME>/.config
+  fsync dir    <HOME>/.local/state/ricepilot/attic/<TS>
+
+the directory is **moved** into the attic, not removed. ricepilot has no
+delete, so what is displaced is always still somewhere you can read it.
+turn <HOME>/.config/hypr into a link into profile `mine`, moving the directory to the attic? [y/N] no
+ricepilot: refusing: not confirmed, so nothing was touched. adopt is the one command that turns a real directory into a link, and it does that only for a path you say yes to (<HOME>/.config/hypr) [R6]

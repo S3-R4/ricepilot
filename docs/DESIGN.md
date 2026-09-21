@@ -284,7 +284,15 @@ Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
   inside the tree and proposes mode-600 files as `volatile` for confirmation.
 * `adopt` is the riskiest command — it is the only one that turns a real user
   directory into a link. Per path, confirmed, hash-verified before the
-  exchange, journalled, displaced directory to the attic.
+  exchange, journalled, displaced directory to the attic. Its planner is
+  `plan::plan_adopt`, pure and separate from `plan()`: `plan()`'s row 3
+  refuses a real directory, and that refusal is what stops a `switch` from
+  stranding whatever an installer wrote, so it is not relaxed for `adopt`'s
+  benefit. `rollback` does **not** undo an adopt — the way back is the attic,
+  by hand, and the command says so ([DECISIONS.md](DECISIONS.md) D49).
+* Confirmation has no `--yes`. The prompt always runs; `inquire` when stdin
+  is a terminal, the same question text read line-wise when it is not, so a
+  test drives the real confirmation rather than skipping it (D47).
 * `doctor` reports and never fixes: owned links that are no longer links; the
   installer's legacy-migration hazard; writers that write into the profile
   tree; foreign theme daemons running; `/home` unsnapshotted; relogin-scoped
