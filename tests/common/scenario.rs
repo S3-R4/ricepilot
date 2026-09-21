@@ -36,6 +36,17 @@ pub const ID: &str = "20260921T101112Z";
 /// the direct-create path (shape 5, D11), and a crash between them is a state
 /// recovery has to handle.
 pub fn build(case: &str, mode: ExchangeMode) -> Scenario {
+    build_with(case, mode, true)
+}
+
+/// Without the absent destination, every row is shape 1 and the switch is a
+/// pure permutation of link targets — which is the only shape for which an
+/// exact inverse exists without a delete primitive (D21).
+pub fn build_links_only(case: &str, mode: ExchangeMode) -> Scenario {
+    build_with(case, mode, false)
+}
+
+pub fn build_with(case: &str, mode: ExchangeMode, include_absent: bool) -> Scenario {
     let f = Fixture::new_in("m2", case);
     let old_root = f.dir("rice/old");
     let new_root = f.dir("rice/new");
@@ -66,7 +77,7 @@ pub fn build(case: &str, mode: ExchangeMode) -> Scenario {
             .collect(),
     };
 
-    let targets = vec![
+    let mut targets = vec![
         Target {
             dest: hypr.clone(),
             src: new_root.join("hypr"),
@@ -75,11 +86,13 @@ pub fn build(case: &str, mode: ExchangeMode) -> Scenario {
             dest: foot.clone(),
             src: new_root.join("foot"),
         },
-        Target {
+    ];
+    if include_absent {
+        targets.push(Target {
             dest: btop.clone(),
             src: new_root.join("btop"),
-        },
-    ];
+        });
+    }
     let dests: Vec<PathBuf> = targets.iter().map(|t| t.dest.clone()).collect();
     let observed = observe(&dests, &ownership).unwrap();
 
@@ -128,13 +141,61 @@ impl Scenario {
             .collect()
     }
 
-    /// The fully-old topology: two links into `old`, and nothing at `btop`.
+    /// The fully-old topology: every exchanged destination back into `old`,
+    /// and nothing at a destination that started absent.
     pub fn all_old(&self) -> Vec<Option<Option<PathBuf>>> {
-        vec![
-            Some(Some(self.old_root.join("hypr"))),
-            Some(Some(self.old_root.join("foot"))),
-            None,
-        ]
+        self.targets
+            .iter()
+            .map(|t| {
+                let leaf = t.dest.file_name().unwrap();
+                if t.dest.ends_with("btop") {
+                    None
+                } else {
+                    Some(Some(self.old_root.join(leaf)))
+                }
+            })
+            .collect()
+    }
+
+    /// The ownership oracle for the links as they stand right now, as a real
+    /// ledger would describe them after the switch that put them there.
+    pub fn ownership_now(&self) -> Ownership {
+        Ownership {
+            profile_roots: vec![self.old_root.clone(), self.new_root.clone()],
+            entries: self
+                .targets
+                .iter()
+                .filter_map(|t| {
+                    let m = read::lstat(&t.dest).ok()??;
+                    Some(LedgerEntry {
+                        dest: t.dest.clone(),
+                        target: read::readlink(&t.dest).ok()?,
+                        dev: m.dev,
+                        ino: m.ino,
+                    })
+                })
+                .collect(),
+        }
+    }
+
+    /// Plan the switch back: same destinations, sources under `old` again.
+    pub fn inverse_ops(&self, attic: &std::path::Path) -> Vec<Op> {
+        let targets: Vec<Target> = self
+            .targets
+            .iter()
+            .map(|t| Target {
+                dest: t.dest.clone(),
+                src: self.old_root.join(t.dest.file_name().unwrap()),
+            })
+            .collect();
+        let dests: Vec<PathBuf> = targets.iter().map(|t| t.dest.clone()).collect();
+        let observed = observe(&dests, &self.ownership_now()).unwrap();
+        let attic_dev = read::dev_of_nearest_existing_ancestor(attic).unwrap();
+        let ctx = PlanContext::new(self.f.home.clone(), attic.to_path_buf(), attic_dev);
+        match plan(&observed, &targets, &ctx) {
+            Plan::Apply { ops } => ops,
+            other => panic!("the inverse must be applicable, got {other:?}"),
+        }
     }
 
     /// The fully-new topology: every destination into `new`.
