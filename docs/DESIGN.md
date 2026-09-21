@@ -147,10 +147,12 @@ the installer wrote. Refusing and telling the user is the correct outcome.
 No allocation, no IO decisions, no user interaction. This is the only window
 in which the filesystem is inconsistent, and it is as short as it can be made.
 
-**Phase C — settle:** move displaced objects to the attic; fsync the touched
-directories; write generation `NNNN` and flip `current`; record the POST
-observation; regenerate `rescue.sh`; print the relogin notice with the exact
-commands.
+**Phase C — settle:** move displaced objects to the attic — including any
+destination the new target state no longer includes, which is *retired* into
+the attic rather than removed ([DECISIONS.md](DECISIONS.md) D36); fsync the
+touched directories; write generation `NNNN` and flip `current`; record the
+POST observation; regenerate `rescue.sh`; print the relogin notice with the
+exact commands.
 
 `rollback` re-applies generation `NNNN-1` through this same path — it is not a
 separate, less-tested code path. `recover` replays the journal by **observing

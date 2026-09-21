@@ -55,6 +55,21 @@ impl Entry {
     }
 }
 
+/// A destination this switch stops owning: it is displaced into the attic and
+/// nothing is put back in its place (D36).
+///
+/// Recorded separately from [`Entry`] because it has no "new target". Its two
+/// states are "the link is still here" and "the link is in the attic", and
+/// recovery tells them apart the same way it tells any other pair apart — by
+/// reading what is at the path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Retire {
+    pub dest: PathBuf,
+    pub old_target: PathBuf,
+    pub attic_rel: PathBuf,
+}
+
 /// The record of one in-flight switch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -70,6 +85,11 @@ pub struct Journal {
     /// not be guessed at.
     pub exchange_mode: String,
     pub entries: Vec<Entry>,
+    /// Destinations this switch stops owning. `#[serde(default)]` so a journal
+    /// written before retirement existed still parses — an in-flight switch
+    /// from an older ricepilot must stay recoverable by a newer one.
+    #[serde(default)]
+    pub retire: Vec<Retire>,
     /// The plan as it was printed, for an auditor. Nothing reads this back —
     /// recovery uses `entries` — but "what did it say it would do" is the
     /// first question anyone asks of a machine that did not come back up.
@@ -94,6 +114,7 @@ impl Journal {
         let attic = attic.into();
         let mut staged_targets: Vec<(PathBuf, PathBuf)> = Vec::new();
         let mut entries: Vec<Entry> = Vec::new();
+        let mut retire: Vec<Retire> = Vec::new();
 
         for op in ops {
             match op {
@@ -126,16 +147,22 @@ impl Journal {
                     attic_rel: None,
                 }),
                 Op::RenameToAttic { from, attic_rel } => {
-                    let entry = entries
+                    match entries
                         .iter_mut()
                         .find(|e| e.staged.as_deref() == Some(from.as_path()))
-                        .ok_or_else(|| Error::Refused {
-                            rule: "R4",
-                            path: from.clone(),
-                            why: "plan moves something to the attic that no exchange produced"
-                                .into(),
-                        })?;
-                    entry.attic_rel = Some(attic_rel.clone());
+                    {
+                        // The displaced old link, sitting at the staging name
+                        // the exchange left it at.
+                        Some(entry) => entry.attic_rel = Some(attic_rel.clone()),
+                        // Otherwise this is a retirement: a destination the
+                        // target state no longer includes, moved out of the
+                        // way with nothing put back.
+                        None => retire.push(Retire {
+                            dest: from.clone(),
+                            old_target: retired_target_of(from, observed)?,
+                            attic_rel: attic_rel.clone(),
+                        }),
+                    }
                 }
                 Op::FsyncDir { .. } => {}
             }
@@ -159,6 +186,7 @@ impl Journal {
             attic,
             exchange_mode: mode.as_str().to_string(),
             entries,
+            retire,
             ops: ops.iter().map(|o| o.to_string()).collect(),
         })
     }
@@ -194,6 +222,31 @@ fn old_target_of(dest: &Path, observed: &[Observed]) -> Result<Option<PathBuf>> 
             path: dest.to_path_buf(),
             why: format!(
                 "plan acts on a destination observed as a {}, which is never switchable",
+                other.as_str()
+            ),
+        }),
+    }
+}
+
+/// The link a retirement displaces. It must be an owned link: `plan` refuses
+/// to retire anything else, so a plan carrying one is a planner bug rather
+/// than a state to be journalled.
+fn retired_target_of(dest: &Path, observed: &[Observed]) -> Result<PathBuf> {
+    let obs = observed
+        .iter()
+        .find(|o| o.dest == dest)
+        .ok_or_else(|| Error::Refused {
+            rule: "R4",
+            path: dest.to_path_buf(),
+            why: "plan retires a destination phase A did not observe".into(),
+        })?;
+    match &obs.shape {
+        Shape::OwnedLink { target } => Ok(target.clone()),
+        other => Err(Error::Refused {
+            rule: "R4",
+            path: dest.to_path_buf(),
+            why: format!(
+                "plan retires a destination observed as a {}, which ricepilot does not own",
                 other.as_str()
             ),
         }),
@@ -462,6 +515,17 @@ fn side_of(e: &Entry, s: &Slots) -> Result<Side> {
     }
 }
 
+/// Which side of the switch a retirement is on. "New" is the destination being
+/// empty: that is what this switch was moving it towards.
+fn retire_side(r: &Retire) -> Result<Side> {
+    match mutate::link_target(&r.dest)? {
+        None => Ok(Side::New),
+        Some(Some(t)) if t == r.old_target => Ok(Side::Old),
+        Some(Some(t)) => Err(foreign(&r.dest, &format!("a symlink to {}", t.display()))),
+        Some(None) => Err(foreign(&r.dest, "not a symlink")),
+    }
+}
+
 /// Where a staged link that is being abandoned lands in the attic. Distinct
 /// from the displaced old link's slot so the attic says which is which.
 fn staged_attic_rel(e: &Entry) -> PathBuf {
@@ -644,6 +708,19 @@ pub fn plan_recovery(j: &Journal) -> Result<Recovery> {
         slots.push(s);
     }
 
+    // A retirement has only two states, and they are as distinguishable as
+    // any other pair: the link is still at the destination, or it is in the
+    // attic and the destination is empty.
+    let mut retire_sides = Vec::new();
+    for r in &j.retire {
+        let side = retire_side(r)?;
+        retire_sides.push(side);
+        statuses.push(Status {
+            dest: r.dest.clone(),
+            side,
+        });
+    }
+
     // Once a single exchange has taken effect, going back means undoing
     // something that is already true of the machine, using the same window
     // that just failed. Going forward finishes what is already most of the
@@ -663,9 +740,27 @@ pub fn plan_recovery(j: &Journal) -> Result<Recovery> {
         actions.extend(actions_for(e, s, direction)?);
     }
 
+    // Retirements happen in phase C, after every exchange. Going forward
+    // finishes the ones that have not happened; going backward means no
+    // exchange took effect, so no retirement did either and the destination
+    // is untouched — there is nothing to undo and nothing to do.
+    for (r, side) in j.retire.iter().zip(&retire_sides) {
+        if direction == Direction::Forward && *side == Side::Old {
+            actions.push(Action::ToAttic {
+                from: r.dest.clone(),
+                rel: r.attic_rel.clone(),
+            });
+        }
+    }
+
     let mut dirs: Vec<PathBuf> = Vec::new();
-    for e in &j.entries {
-        if let Some(p) = e.dest.parent() {
+    for dest in j
+        .entries
+        .iter()
+        .map(|e| &e.dest)
+        .chain(j.retire.iter().map(|r| &r.dest))
+    {
+        if let Some(p) = dest.parent() {
             if !dirs.contains(&p.to_path_buf()) {
                 dirs.push(p.to_path_buf());
             }

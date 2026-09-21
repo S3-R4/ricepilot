@@ -521,3 +521,50 @@ wrong; a switch that goes wrong is one that did something unintended to a
 symlink, so the file that says how to get back must not be one. Refusing
 rather than following also means the check cannot be defeated by pointing the
 pointer at itself.
+
+## D36 — A created link is retired into the attic, and that is said out loud
+
+*M3, and the answer to D21.* Shape 5 switches an absent destination with a
+single `symlinkat`. Undoing that means the destination should be absent again,
+and making something absent is a removal, which exists nowhere outside
+`src/gc/` (R2). There is no exact inverse, and pretending otherwise would mean
+either adding a delete primitive or leaving a link behind that the user
+believes `rollback` took away.
+
+The answer is **retirement**: the link is renamed into
+`state/attic/<ts>/<its absolute path>`, the destination is left empty, and
+nothing is deleted. `rollback --commit` reports each retired path and where its
+link now is. A user who expected removal gets removal's observable effect —
+nothing at that path — plus a sentence saying where the link went, which is
+strictly more than a delete would have given them.
+
+What makes this a decision rather than a detail is where it lives. Retirement
+is **planned**, not bolted onto `rollback`:
+
+* `PlanContext.retire` names the destinations the target state no longer
+  includes, and `plan` emits `Op::RenameToAttic` for each one it still owns —
+  in phase C, after the exchanges, which is when it executes.
+* A retire destination observed as anything but an owned link or absent is
+  refused with `Refusal::Unowned`, for the same reason a switch onto one is:
+  ricepilot did not put it there.
+* A destination named by both the target list and the retire list is being
+  switched, not retired. Without that check a `rollback` onto the same path
+  would displace the link it had just staged.
+* The journal records retirements in their own `retire` list, because a
+  retirement has no "new target" and so is not an `Entry`. Its two states —
+  the link is at the destination, or it is in the attic — are as
+  distinguishable by reading the filesystem as any other pair, so D23's rule
+  covers it unchanged. `#[serde(default)]` keeps an older journal parseable.
+* Recovery finishes an unfinished retirement going forward and does nothing
+  going backward, because retirement happens in phase C: if no exchange took
+  effect, no retirement did either.
+
+One consequence is worth stating plainly, and it is a test: a switch whose
+*only* effect is a retirement, interrupted before it happened, is **abandoned**
+rather than finished. No exchange took place, so by D23 the switch never
+started. The machine is fully old, which is one of the two outcomes R5 allows.
+Finishing it would be recovery inventing an effect rather than completing one.
+
+The same mechanism serves `switch` — a profile that drops a path its
+predecessor managed retires that path — so `rollback` is not the only caller
+and therefore not the only tested path.

@@ -245,6 +245,16 @@ pub struct PlanContext {
     /// Packages `pacman -Q` could not find (M5 fills this; M1 leaves it
     /// empty).
     pub missing_requires: Vec<String>,
+    /// Destinations ricepilot owns that the target state does **not** include,
+    /// and which are therefore displaced into the attic by this switch.
+    ///
+    /// This is how a switch stops owning a path without anything being
+    /// removed (D36). It is also what makes `rollback` honest: a link the
+    /// forward switch created at a destination the previous generation did not
+    /// have has no exact inverse — making it absent again is a removal, and
+    /// there is none outside `src/gc/` — so the nearest true thing is to
+    /// displace it, and to say so.
+    pub retire: Vec<PathBuf>,
 }
 
 impl PlanContext {
@@ -256,7 +266,14 @@ impl PlanContext {
             attic: attic.into(),
             attic_dev,
             missing_requires: Vec::new(),
+            retire: Vec::new(),
         }
+    }
+
+    /// The destinations this switch stops owning.
+    pub fn retiring(mut self, retire: Vec<PathBuf>) -> Self {
+        self.retire = retire;
+        self
     }
 }
 
@@ -438,6 +455,52 @@ pub fn plan(observed: &[Observed], target: &[Target], ctx: &PlanContext) -> Plan
                     }
                 }
             }
+        }
+    }
+
+    // Destinations this switch stops owning. They are displaced into the
+    // attic, never removed (R2), and they are planned *after* the exchanges
+    // because that is the order phase C executes them in.
+    for dest in &ctx.retire {
+        // A path in both lists is being switched, not retired; the target
+        // state includes it, so there is nothing to stop owning.
+        if target.iter().any(|t| &t.dest == dest) {
+            continue;
+        }
+        let Some(obs) = observed.iter().find(|o| &o.dest == dest) else {
+            refusals.push(Refusal::NotObserved { dest: dest.clone() });
+            continue;
+        };
+        match &obs.shape {
+            // Ours, and no longer wanted: into the attic it goes.
+            Shape::OwnedLink { .. } => {
+                if obs.parent_dev != ctx.attic_dev {
+                    refusals.push(Refusal::CrossDevice {
+                        dest: dest.clone(),
+                        from: obs.parent_dev,
+                        to: ctx.attic_dev,
+                    });
+                    continue;
+                }
+                attic.push(Op::RenameToAttic {
+                    from: dest.clone(),
+                    attic_rel: attic_rel(dest),
+                });
+                if let Some(p) = dest.parent() {
+                    if !dirs.contains(&p.to_path_buf()) {
+                        dirs.push(p.to_path_buf());
+                    }
+                }
+            }
+            // Already gone. Nothing to displace, and nothing to say about it.
+            Shape::Absent => {}
+            // Something else is at a path ricepilot believed it owned. It is
+            // refused for exactly the reason a switch onto one is: ricepilot
+            // did not put it there and cannot know what depends on it.
+            _ => refusals.push(Refusal::Unowned {
+                dest: dest.clone(),
+                shape: obs.shape.as_str(),
+            }),
         }
     }
 
