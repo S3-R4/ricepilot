@@ -8,6 +8,7 @@
 #![allow(clippy::disallowed_methods)]
 #![allow(dead_code)]
 
+pub mod adopting;
 pub mod scenario;
 pub mod switching;
 
