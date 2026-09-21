@@ -1,0 +1,27 @@
+---
+source: tests/cli_recover.rs
+expression: r.stdout
+---
+recover: an interrupted switch to profile `new` (20260921T101112Z)
+
+observed:
+  new            <HOME>/.config/hypr
+  old            <HOME>/.config/foot
+  old            <HOME>/.config/btop
+
+direction: forward — at least one destination is already switched, so finishing is the only outcome
+           that does not undo something already in effect.
+
+applied 6 operation(s):
+  to attic     <HOME>/.config/hypr.rp-tmp-0 -> <attic><HOME>/.config/hypr
+  exchange     <HOME>/.config/foot <-> <HOME>/.config/foot.rp-tmp-1
+  to attic     <HOME>/.config/foot.rp-tmp-1 -> <attic><HOME>/.config/foot
+  create link  <HOME>/.config/btop -> <HOME>/rice/new/btop
+  fsync dir    <HOME>/.config
+  fsync dir    <HOME>/.local/state/ricepilot/attic/20260921T101112Z
+
+recovered. every destination is now on one side of the switch, and the journal has
+been retired to `state/journal/done-20260921T101112Z.toml`.
+displaced links are in `state/attic/20260921T101112Z/`; nothing was removed.
+
+the switch took effect on disk. it reaches the session at the next login.

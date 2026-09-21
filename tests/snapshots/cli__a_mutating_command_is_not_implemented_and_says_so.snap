@@ -2,4 +2,4 @@
 source: tests/cli.rs
 expression: r.stderr
 ---
-ricepilot: not possible: `switch` is not implemented yet; M1 ships the read-only commands plan, status, list and show [see docs/NOT-POSSIBLE.md#not-yet-implemented]
+ricepilot: not possible: `switch` is not implemented yet; M1 ships the read-only commands plan, status, list and show, and M2 adds recover [see docs/NOT-POSSIBLE.md#not-yet-implemented]

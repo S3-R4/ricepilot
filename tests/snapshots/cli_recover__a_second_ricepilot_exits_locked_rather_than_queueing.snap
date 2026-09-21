@@ -1,0 +1,5 @@
+---
+source: tests/cli_recover.rs
+expression: r.stderr
+---
+ricepilot: another ricepilot holds <HOME>/.run/ricepilot.lock

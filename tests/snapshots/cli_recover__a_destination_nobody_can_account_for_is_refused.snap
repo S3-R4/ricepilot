@@ -1,0 +1,5 @@
+---
+source: tests/cli_recover.rs
+expression: r.stderr
+---
+ricepilot: refusing: an interrupted switch left this destination as a symlink to <HOME>/rice/other/foot, which is neither the profile it was on nor the one it was moving to. ricepilot will not guess what happened to it (<HOME>/.config/foot) [R4]

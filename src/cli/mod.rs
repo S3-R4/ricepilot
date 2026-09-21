@@ -110,6 +110,7 @@ pub fn run(command: Command) -> Result<String> {
         Command::Show { profile } => cmd_show(&paths, &profile),
         Command::Status => cmd_status(&paths),
         Command::Plan { profile } => cmd_plan(&paths, &profile),
+        Command::Recover { commit } => cmd_recover(&paths, commit),
 
         // Mutating commands and the remaining read-only ones arrive in later
         // milestones. Saying so and exiting non-zero is the honest answer;
@@ -118,7 +119,7 @@ pub fn run(command: Command) -> Result<String> {
             anchor: "not-yet-implemented",
             why: format!(
                 "`{}` is not implemented yet; M1 ships the read-only commands \
-                 plan, status, list and show",
+                 plan, status, list and show, and M2 adds recover",
                 subcommand_name(&other)
             ),
         }),
@@ -143,6 +144,29 @@ fn subcommand_name(c: &Command) -> &'static str {
         Command::Diff { .. } => "diff",
         Command::Gc { .. } => "gc",
     }
+}
+
+/// `ricepilot recover`.
+///
+/// The lock is taken even for the dry run. Reading a half-finished switch
+/// while another ricepilot is in the middle of making it would produce a
+/// report about a machine that no longer exists by the time it is printed, and
+/// a dry run whose answer is stale is worse than one that declines.
+fn cmd_recover(paths: &paths::Paths, commit: bool) -> Result<String> {
+    let _lock = crate::ops::lock::acquire(&paths.lock_path()?)?;
+
+    let journal_path = paths.journal_path();
+    let Some(journal) = crate::journal::read_current(&journal_path)? else {
+        return Ok(render::NOTHING_TO_RECOVER.to_string());
+    };
+
+    let recovery = crate::journal::plan_recovery(&journal)?;
+    if !commit {
+        return Ok(render::recover(&recovery, false));
+    }
+
+    crate::journal::execute(&recovery, &journal_path, journal.mode()?, &journal.attic)?;
+    Ok(render::recover(&recovery, true))
 }
 
 fn cmd_list(paths: &paths::Paths) -> Result<String> {

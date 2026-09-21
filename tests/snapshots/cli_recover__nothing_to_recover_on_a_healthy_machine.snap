@@ -1,0 +1,6 @@
+---
+source: tests/cli_recover.rs
+expression: r.stdout
+---
+no switch is in flight: there is no journal at `state/journal/current.toml`.
+nothing to recover, and nothing has been changed.

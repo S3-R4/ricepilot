@@ -7,6 +7,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
+use crate::journal::{Direction, Recovery};
 use crate::manifest::Manifest;
 use crate::observe::Observed;
 use crate::plan::{Plan, Refusal};
@@ -187,3 +188,86 @@ pub fn status(paths: &Paths, profiles: &[Profile], ledger_present: bool) -> Stri
 pub const NO_LEDGER_NOTE: &str = "\nnote: no ledger is being read yet (milestone M3), so no live \
 link can satisfy the\n      ownership predicate. Existing links are reported as foreign, which is \
 the\n      correct answer until `init` registers them.\n";
+
+/// `ricepilot recover` when there is no in-flight journal — which is what a
+/// healthy machine looks like, and is worth saying plainly rather than
+/// printing nothing.
+pub const NOTHING_TO_RECOVER: &str = "no switch is in flight: there is no journal at \
+`state/journal/current.toml`.\nnothing to recover, and nothing has been changed.\n";
+
+/// Why recovery is going the way it is going. There are only two directions
+/// and no third outcome (`SAFETY.md` R5), so both are spelled out.
+fn direction_note(d: Direction) -> &'static str {
+    match d {
+        Direction::Forward => {
+            "forward — at least one destination is already switched, so finishing is the only \
+             outcome\n           that does not undo something already in effect."
+        }
+        Direction::Backward => {
+            "backward — no exchange had happened yet, so the switch never started. The staged \
+             links\n            go to the attic; nothing that was live is touched."
+        }
+    }
+}
+
+/// `ricepilot recover`, dry-run and committed. The two differ only in the last
+/// paragraph: what is printed above it is the same value either way, which is
+/// the whole of R4's promise.
+pub fn recover(r: &Recovery, committed: bool) -> String {
+    let mut s = String::new();
+    let _ = writeln!(
+        s,
+        "recover: an interrupted switch to profile `{}` ({})",
+        r.profile, r.id
+    );
+    let _ = writeln!(s);
+
+    let _ = writeln!(s, "observed:");
+    for st in &r.statuses {
+        let _ = writeln!(s, "  {:<14} {}", st.side.as_str(), st.dest.display());
+    }
+    let _ = writeln!(s);
+    let _ = writeln!(s, "direction: {}", direction_note(r.direction));
+    let _ = writeln!(s);
+
+    if r.actions.is_empty() {
+        let _ = writeln!(s, "there is nothing left to do.");
+    } else {
+        let _ = writeln!(
+            s,
+            "{} {} operation(s):",
+            if committed { "applied" } else { "would apply" },
+            r.actions.len()
+        );
+        for a in &r.actions {
+            let _ = writeln!(s, "  {a}");
+        }
+    }
+    let _ = writeln!(s);
+
+    if committed {
+        let _ = writeln!(
+            s,
+            "recovered. every destination is now on one side of the switch, and the journal has"
+        );
+        let _ = writeln!(s, "been retired to `state/journal/done-{}.toml`.", r.id);
+        let _ = writeln!(
+            s,
+            "displaced links are in `state/attic/{}/`; nothing was removed.",
+            r.id
+        );
+        if r.direction == Direction::Forward {
+            let _ = writeln!(s);
+            let _ = writeln!(
+                s,
+                "the switch took effect on disk. it reaches the session at the next login."
+            );
+        }
+    } else {
+        let _ = writeln!(
+            s,
+            "nothing has been changed. re-run with --commit to carry this out."
+        );
+    }
+    s
+}
