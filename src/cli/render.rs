@@ -157,7 +157,7 @@ pub fn show(name: &str, m: &Manifest, root: &Path, home: &Path) -> String {
 /// `ricepilot status`. Reports what it observed, not what a manifest claims
 /// (`SAFETY.md` R7), and says plainly which parts are not built yet rather
 /// than printing a reassuring blank.
-pub fn status(paths: &Paths, profiles: &[Profile], ledger_present: bool) -> String {
+pub fn status(paths: &Paths, profiles: &[Profile], ledger: &crate::ledger::Ledger) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "home:      {}", paths.home.display());
     let _ = writeln!(s, "data:      {}", paths.data.display());
@@ -166,15 +166,23 @@ pub fn status(paths: &Paths, profiles: &[Profile], ledger_present: bool) -> Stri
     for p in profiles {
         let _ = writeln!(s, "             {}", p.name);
     }
-    let _ = writeln!(
-        s,
-        "ledger:    {}",
-        if ledger_present {
-            "present"
-        } else {
-            "absent — no live path is registered as owned yet"
+    if ledger.entries.is_empty() {
+        let _ = writeln!(
+            s,
+            "owned:     none — no live path is registered as owned yet"
+        );
+    } else {
+        let _ = writeln!(s, "owned:     {} path(s)", ledger.entries.len());
+        for e in &ledger.entries {
+            let _ = writeln!(
+                s,
+                "             {} -> {} ({})",
+                e.dest.display(),
+                e.target.display(),
+                e.profile
+            );
         }
-    );
+    }
     let _ = writeln!(s);
     let _ = writeln!(
         s,
@@ -182,12 +190,6 @@ pub fn status(paths: &Paths, profiles: &[Profile], ledger_present: bool) -> Stri
     );
     s
 }
-
-/// Printed by `plan` while the ledger reader is still M3 work. Without it the
-/// command would report every existing link as foreign and give no hint why.
-pub const NO_LEDGER_NOTE: &str = "\nnote: no ledger is being read yet (milestone M3), so no live \
-link can satisfy the\n      ownership predicate. Existing links are reported as foreign, which is \
-the\n      correct answer until `init` registers them.\n";
 
 /// `ricepilot recover` when there is no in-flight journal — which is what a
 /// healthy machine looks like, and is worth saying plainly rather than

@@ -411,3 +411,25 @@ unrelated to the code — as it did, twice, while this milestone was being built
 
 Each case's directory is now emptied first. D18 already covers why the harness
 may call a removal function and the crate may not.
+
+## D31 — The ledger row carries `(dev, ino)` and a profile name, and the M1 note goes with it
+
+*M3.* Fact 3 of the ownership predicate is a ledger row matching the path, the
+target string **and** the `(dev, ino)`. Only the last of those is evidence. A
+row holding path and target agrees with itself after an installer removes our
+link and puts an identical-looking one of its own at the same path pointing at
+the same place — which is exactly the case ricepilot must refuse, so the inode
+identity is what the row is for. `tests/ledger.rs` asserts that case directly
+rather than asserting the happy path twice.
+
+The row also carries the profile that created it. That is *not* part of the
+predicate — ownership is the three facts and nothing else — it is what
+`status` prints and what the retirement decision reads. Keeping it in the same
+file rather than in a fourth one means there is one answer to "what does
+ricepilot own", and it is the file whose name says so.
+
+`render::NO_LEDGER_NOTE` and the `!ledger_present && any_foreign` branch in
+`cmd_plan` are deleted in the same commit. They existed to explain why a link
+that looked correct was reported as foreign while the ledger reader was
+unwritten. It is written; the explanation is now false, and a note that
+outlives its reason is a lie told in a reassuring tone.

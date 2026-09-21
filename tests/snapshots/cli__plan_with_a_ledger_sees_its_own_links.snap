@@ -1,0 +1,11 @@
+---
+source: tests/cli.rs
+expression: r.stdout
+---
+plan: switch to profile `caelestia`
+
+observed:
+  owned link     <HOME>/.config/hypr
+  owned link     <HOME>/.config/foot
+
+nothing to do: every destination already matches.

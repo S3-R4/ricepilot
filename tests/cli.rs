@@ -141,6 +141,60 @@ fn plan_against_existing_unregistered_links() {
     insta::assert_snapshot!(r.stdout);
 }
 
+/// The same tree once the ledger records the links: all three ownership facts
+/// hold, so they are owned links rather than foreign ones, and the plan is a
+/// no-op because they already point where the profile says. This is the branch
+/// M1 could not reach and the reason its explanatory note is now gone.
+#[test]
+fn plan_with_a_ledger_sees_its_own_links() {
+    let f = with_caelestia("cli_plan_owned");
+    let root = f.path("rice/caelestia");
+    f.clear(".config/hypr");
+    f.clear(".config/foot");
+    let hypr = f.link(".config/hypr", &root.join("hypr"));
+    let foot = f.link(".config/foot", &root.join("foot"));
+
+    let mut l = ricepilot::ledger::Ledger::default();
+    l.record(&[hypr, foot], "caelestia").unwrap();
+    ricepilot::ledger::save(&f.state().join("ledger.toml"), &l).unwrap();
+
+    let r = run(&f, &["plan", "caelestia"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    insta::assert_snapshot!(r.stdout);
+
+    let s = run(&f, &["status"]);
+    assert_eq!(s.code, 0, "{}", s.stderr);
+    insta::assert_snapshot!("status_with_owned_paths", s.stdout);
+}
+
+/// A ledger row whose `(dev, ino)` no longer matches the link at that path is
+/// the installer-swapped-it case, and it is refused rather than acted on.
+#[test]
+fn plan_refuses_a_link_the_ledger_no_longer_identifies() {
+    let f = with_caelestia("cli_plan_stale_ledger");
+    let root = f.path("rice/caelestia");
+    f.clear(".config/hypr");
+    f.clear(".config/foot");
+    let hypr = f.link(".config/hypr", &root.join("hypr"));
+    let foot = f.link(".config/foot", &root.join("foot"));
+
+    let mut l = ricepilot::ledger::Ledger::default();
+    l.record(&[hypr, foot.clone()], "caelestia").unwrap();
+    ricepilot::ledger::save(&f.state().join("ledger.toml"), &l).unwrap();
+
+    // Same path, same target string, different inode.
+    f.link(".config/foot", &root.join("foot"));
+
+    let r = run(&f, &["plan", "caelestia"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    assert!(
+        r.stdout.contains("foreign link"),
+        "an identical-looking replacement must not be treated as owned:\n{}",
+        r.stdout
+    );
+    let _ = foot;
+}
+
 /// Nothing at either destination: the switch is a pair of plain link
 /// creations, with nothing to displace.
 #[test]

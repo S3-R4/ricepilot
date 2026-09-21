@@ -1,12 +1,14 @@
 ---
 source: tests/cli.rs
-expression: r.stdout
+expression: s.stdout
 ---
 home:      <HOME>
 data:      <HOME>/.local/share/ricepilot
 state:     <HOME>/.local/state/ricepilot
 profiles:  1
              caelestia
-owned:     none — no live path is registered as owned yet
+owned:     2 path(s)
+             <HOME>/.config/foot -> <HOME>/rice/caelestia/foot (caelestia)
+             <HOME>/.config/hypr -> <HOME>/rice/caelestia/hypr (caelestia)
 
 generations and drift reporting are not implemented yet (milestone M3).

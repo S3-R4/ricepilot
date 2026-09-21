@@ -187,8 +187,8 @@ fn cmd_show(paths: &paths::Paths, name: &str) -> Result<String> {
 
 fn cmd_status(paths: &paths::Paths) -> Result<String> {
     let profiles = paths::load_all(paths)?;
-    let ledger_present = crate::ops::read::lstat(&paths.ledger_path())?.is_some();
-    Ok(render::status(paths, &profiles, ledger_present))
+    let ledger = crate::ledger::load(&paths.ledger_path())?;
+    Ok(render::status(paths, &profiles, &ledger))
 }
 
 fn cmd_plan(paths: &paths::Paths, name: &str) -> Result<String> {
@@ -200,12 +200,8 @@ fn cmd_plan(paths: &paths::Paths, name: &str) -> Result<String> {
     // pointing into the profile we are switching *away* from is still one of
     // ours, and must not be misread as foreign.
     let all = paths::load_all(paths)?;
-    let ownership = crate::observe::Ownership {
-        profile_roots: all.iter().map(|p| p.root(&paths.home)).collect(),
-        // M3 fills this from state/ledger.toml. Until then the predicate's
-        // third fact can never hold, which is why NO_LEDGER_NOTE is printed.
-        entries: Vec::new(),
-    };
+    let ledger = crate::ledger::load(&paths.ledger_path())?;
+    let ownership = ledger.ownership(all.iter().map(|p| p.root(&paths.home)).collect());
 
     let observed = crate::observe::observe(&dests, &ownership)?;
     let attic = paths.attic_dir();
@@ -213,17 +209,5 @@ fn cmd_plan(paths: &paths::Paths, name: &str) -> Result<String> {
     let ctx = crate::plan::PlanContext::new(paths.home.clone(), attic, attic_dev);
     let plan = crate::plan::plan(&observed, &targets, &ctx);
 
-    let mut out = render::plan(&profile.name, &observed, &plan);
-
-    // The note explains why a link that looks right is called foreign. It is
-    // only printed when that actually happened, so it never contradicts a
-    // plan that has no foreign link in it.
-    let ledger_present = crate::ops::read::lstat(&paths.ledger_path())?.is_some();
-    let any_foreign = observed
-        .iter()
-        .any(|o| matches!(o.shape, crate::observe::Shape::ForeignLink { .. }));
-    if !ledger_present && any_foreign {
-        out.push_str(render::NO_LEDGER_NOTE);
-    }
-    Ok(out)
+    Ok(render::plan(&profile.name, &observed, &plan))
 }
