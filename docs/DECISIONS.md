@@ -709,3 +709,61 @@ M1's planner tests (written before the check existed) meaningful rather than
 rewritten; both callers that can act supply one fact per target, and `plan` and
 `switch` therefore agree. A dry run that said it would work and a switch that
 then refused would be the worst of both.
+
+## D43 — The copier is in-process; `cp` is not added to the subprocess allowlist
+
+*M4.* The brief specifies a `cp -a --reflink=auto` baseline at `init`
+([AGENT_PROMPT.md](../AGENT_PROMPT.md) §3). That is a *mutating* subprocess,
+and [SAFETY.md](SAFETY.md) R3's allowlist in `src/ops/exec.rs` is closed and
+currently contains nothing that changes a byte: `sh -n` parses without
+running, `pacman -Q` queries, `hyprctl` queries, `Hyprland --verify-config`
+runs on a sandboxed copy, `git status` reports. `uwsm stop` is the one
+exception and it is user-initiated behind a y/N.
+
+Adding `cp` would widen that from "ricepilot can ask questions of the system"
+to "ricepilot can hand a mutation to a program whose behaviour is decided by a
+flag string". `cp` with the wrong flags is one of the concrete ways this
+project fails: `-r` instead of `-a` silently resolves every symlink, and
+caelestia's tree contains an absolute one (`userChrome.css`) that would drag a
+second tree in; `-T` forgotten turns a copy *onto* a path into a copy *inside*
+it; and a `cp` that is interrupted leaves a partial tree that ricepilot has no
+delete to tidy away.
+
+**So the copier lives in `ops::mutate` and no subprocess is added.**
+
+The cost the brief warns about — no reflink — is avoided a different way:
+`rustix::fs::ioctl_ficlone` is what `cp --reflink=auto` asks the kernel for,
+and it is one `ioctl` on two open descriptors, not a program. `copy_tree`
+tries it per file and falls back to a 64K read/write loop on *any* error,
+because every reason it can fail (wrong filesystem, no support, not a regular
+file) is a reason to copy the bytes instead, and none of them has written
+anything to the destination. On the target machine's btrfs `/home` the
+baseline is therefore still instant and still free; on ext4 it costs what a
+copy costs.
+
+What is genuinely given up is `cp`'s decades of edge cases: sparse files are
+not detected (`FICLONE` handles them; the fallback writes the holes out),
+xattrs and ACLs are not carried across, and hard links between two files in
+the tree become two independent files. None of those change what a config
+tree *means*, and all three are visible — `verify` records mode, uid, gid and
+`mtime_ns` and reports any difference — which is the property that matters:
+if the copy is not faithful, the hash check `capture` and `adopt` run before
+they declare success is what says so.
+
+## D44 — The copier walks for the uncopyable before it writes anything
+
+*M4.* A socket or a fifo cannot be copied — a copy of one is not the same
+object, and pretending otherwise would produce a profile that silently is not
+the tree it claims to be. The obvious implementation refuses when it reaches
+one, which means a tree with a socket half way through it leaves two thirds of
+a copy behind.
+
+R4 says a refusal has **zero** side effects, and R2 means there is no delete
+to tidy a partial tree away with, so the two rules together force the order:
+`copy_tree` stats the whole source first and refuses the whole copy, naming
+the path, before it creates anything. The extra walk costs stats and no data.
+
+The same reasoning is why every directory is `mkdirat`ed fresh and every file
+is opened `O_CREAT | O_EXCL`: a copy interrupted by a crash rather than by a
+refusal *does* leave a partial tree, and the next attempt must be a refusal
+naming it rather than something that quietly writes over the evidence.

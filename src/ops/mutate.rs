@@ -416,3 +416,322 @@ pub fn apply(
     }
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// The copier
+// ---------------------------------------------------------------------------
+
+/// What one [`copy_tree`] moved across, for the report the user sees.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CopyStats {
+    pub dirs: usize,
+    pub files: usize,
+    pub links: usize,
+    pub bytes: u64,
+    /// Files the kernel shared rather than duplicated (`FICLONE`). On btrfs
+    /// this is every file and the copy costs no space; elsewhere it is zero.
+    pub cloned: usize,
+}
+
+/// Copy `from` to `to`, preserving what a config tree needs preserved.
+///
+/// * **Symlinks stay symlinks.** A link is recreated with the same target
+///   string, byte for byte, and is never followed — the same rule
+///   [`super::read`] applies to every open, for the same reason: following one
+///   would copy somewhere else's tree into the profile.
+/// * **Mode, owner and times are preserved.** Mode is set explicitly after
+///   creation, because the `umask` applies to the creating call and a
+///   mode-600 file that came back 644 would be a secret this tool widened.
+///   Owner is best-effort: an unprivileged process can only keep the owner it
+///   already has, and failing the whole copy over that would make `capture`
+///   unusable for exactly nothing.
+/// * **Nothing is ever replaced and nothing is ever shortened.** Every
+///   directory is `mkdirat`ed fresh and every file is opened
+///   `O_CREAT | O_EXCL`, so a half-finished earlier attempt is a refusal
+///   naming the path rather than something this function overwrites — which
+///   matters doubly here, because there is no delete to undo it with (R2).
+/// * **Anything that is not a directory, a regular file or a symlink is a
+///   refusal**, naming the path, and the whole source is walked for one
+///   *before* the first byte is written. A socket or a fifo in a config tree
+///   is a thing a running program owns, and a copy of one is not the same
+///   object; saying so is better than producing a profile that silently is
+///   not the tree it claims to be. The walk happens first because R4 says a
+///   refusal has zero side effects, and "we refused, and also left two
+///   thirds of a tree behind" is not zero.
+///
+/// Data is moved with `FICLONE` where the filesystem supports it — on btrfs
+/// that makes a 7 GB baseline instant and free — and by a 64K read/write loop
+/// where it does not (D43).
+pub fn copy_tree(from: &Path, to: &Path) -> Result<CopyStats> {
+    if to.starts_with(from) {
+        return Err(Error::Refused {
+            rule: "R5",
+            path: to.to_path_buf(),
+            why: format!(
+                "is inside {}, so copying one into the other would never finish",
+                from.display()
+            ),
+        });
+    }
+    if read::lstat_or_absent(to)?.is_some() {
+        return Err(Error::Refused {
+            rule: "R2",
+            path: to.to_path_buf(),
+            why: "something is already here. ricepilot copies into a name nothing occupies, so \
+                  that an interrupted earlier attempt is something you can look at rather than \
+                  something this overwrote"
+                .into(),
+        });
+    }
+    let parent = to.parent().ok_or_else(|| Error::Refused {
+        rule: "R5",
+        path: to.to_path_buf(),
+        why: "copy destination has no parent directory".into(),
+    })?;
+    make_dirs(parent)?;
+    refuse_unsupported(from)?;
+
+    let mut stats = CopyStats::default();
+    copy_one(from, to, &mut stats)?;
+    fsync_dir(parent)?;
+    Ok(stats)
+}
+
+/// Walk the source and refuse anything [`copy_one`] could not copy, before
+/// anything has been created. Stat-only, so it costs a walk and no data.
+fn refuse_unsupported(from: &Path) -> Result<()> {
+    let meta = read::lstat(from)?.ok_or_else(|| Error::Refused {
+        rule: "R5",
+        path: from.to_path_buf(),
+        why: "there is nothing here to copy".into(),
+    })?;
+    match meta.kind {
+        Kind::File | Kind::Symlink => Ok(()),
+        Kind::Dir => {
+            for child in read::list_dir(from)? {
+                refuse_unsupported(&from.join(child))?;
+            }
+            Ok(())
+        }
+        Kind::Other => Err(unsupported(from)),
+    }
+}
+
+fn unsupported(path: &Path) -> Error {
+    Error::Refused {
+        rule: "R5",
+        path: path.to_path_buf(),
+        why: "is neither a directory, a regular file nor a symlink. ricepilot will not pretend \
+              a copy of a socket or a fifo is the same object; declare it volatile or move it \
+              aside"
+            .into(),
+    }
+}
+
+/// One entry, whatever kind it is. `to` must not exist.
+fn copy_one(from: &Path, to: &Path, stats: &mut CopyStats) -> Result<()> {
+    let (dirfd, name) = read::parent_dirfd(from)?;
+    let st = rustix::fs::statat(
+        &dirfd,
+        name.as_os_str(),
+        rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+    )
+    .map_err(|e| io(format!("stat {}", from.display()), e))?;
+    let meta = read::meta_of(&st);
+    let times = times_of(&st);
+
+    match meta.kind {
+        Kind::Dir => {
+            copy_dir(from, to, &meta, &times, stats)?;
+            stats.dirs += 1;
+        }
+        Kind::File => {
+            copy_file(from, to, &meta, &times, stats)?;
+            stats.files += 1;
+        }
+        Kind::Symlink => {
+            copy_symlink(from, to, &meta, &times)?;
+            stats.links += 1;
+        }
+        // Unreachable in practice: `refuse_unsupported` walked the whole
+        // source before this started. Kept because the enum is total and a
+        // panic here would be a worse answer than the refusal.
+        Kind::Other => return Err(unsupported(from)),
+    }
+    Ok(())
+}
+
+fn copy_dir(
+    from: &Path,
+    to: &Path,
+    meta: &read::Meta,
+    times: &rustix::fs::Timestamps,
+    stats: &mut CopyStats,
+) -> Result<()> {
+    let (dirfd, name) = read::parent_dirfd(to)?;
+    rustix::fs::mkdirat(&dirfd, name.as_os_str(), Mode::from_bits_truncate(0o700))
+        .map_err(|e| io(format!("mkdir {}", to.display()), e))?;
+
+    for child in read::list_dir(from)? {
+        copy_one(&from.join(&child), &to.join(&child), stats)?;
+    }
+
+    // Mode, owner and times are applied *after* the children, because adding
+    // an entry to a directory moves its mtime and a read-only directory
+    // cannot be written into.
+    let fd = rustix::fs::openat(
+        &dirfd,
+        name.as_os_str(),
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|e| io(format!("opening {} to set its metadata", to.display()), e))?;
+    rustix::fs::fchmod(&fd, Mode::from_bits_truncate(meta.mode))
+        .map_err(|e| io(format!("setting the mode of {}", to.display()), e))?;
+    keep_owner(&fd, meta);
+    rustix::fs::futimens(&fd, times)
+        .map_err(|e| io(format!("setting the times of {}", to.display()), e))?;
+    rustix::fs::fsync(&fd).map_err(|e| io(format!("fsync {}", to.display()), e))
+}
+
+fn copy_file(
+    from: &Path,
+    to: &Path,
+    meta: &read::Meta,
+    times: &rustix::fs::Timestamps,
+    stats: &mut CopyStats,
+) -> Result<()> {
+    let (from_dirfd, from_name) = read::parent_dirfd(from)?;
+    let src = rustix::fs::openat(
+        &from_dirfd,
+        from_name.as_os_str(),
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|e| io(format!("opening {}", from.display()), e))?;
+
+    let (to_dirfd, to_name) = read::parent_dirfd(to)?;
+    let dst = rustix::fs::openat(
+        &to_dirfd,
+        to_name.as_os_str(),
+        OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC,
+        Mode::from_bits_truncate(meta.mode),
+    )
+    .map_err(|e| io(format!("creating {}", to.display()), e))?;
+
+    // One ioctl for the whole file where the filesystem can share extents,
+    // and a plain loop where it cannot. Any error at all falls back: the
+    // reasons it can fail (different filesystem, no support, not a regular
+    // file) are all reasons to copy the bytes instead, and none of them has
+    // written anything to the destination.
+    match rustix::fs::ioctl_ficlone(&dst, &src) {
+        Ok(()) => {
+            stats.cloned += 1;
+            stats.bytes += size_of_file(&src, from)?;
+        }
+        Err(_) => stats.bytes += stream(&src, &dst, from, to)?,
+    }
+
+    rustix::fs::fchmod(&dst, Mode::from_bits_truncate(meta.mode))
+        .map_err(|e| io(format!("setting the mode of {}", to.display()), e))?;
+    keep_owner(&dst, meta);
+    rustix::fs::futimens(&dst, times)
+        .map_err(|e| io(format!("setting the times of {}", to.display()), e))
+}
+
+fn copy_symlink(
+    from: &Path,
+    to: &Path,
+    meta: &read::Meta,
+    times: &rustix::fs::Timestamps,
+) -> Result<()> {
+    let target = read::readlink(from)?;
+    create_symlink(to, &target)?;
+
+    let (dirfd, name) = read::parent_dirfd(to)?;
+    // A link has no fd of its own to act on: `O_PATH|O_NOFOLLOW` opens it
+    // without opening what it points at, but `fchmod`/`futimens` on an
+    // `O_PATH` descriptor are `EBADF`. The `*at` forms with
+    // `AT_SYMLINK_NOFOLLOW` are the ones that act on the link itself.
+    //
+    // Its mode is not set: Linux has no `lchmod`, and a symlink's own
+    // permission bits are unused by the kernel anyway.
+    let (uid, gid) = owner_ids(meta);
+    let _ = rustix::fs::chownat(
+        &dirfd,
+        name.as_os_str(),
+        uid,
+        gid,
+        rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+    );
+    rustix::fs::utimensat(
+        &dirfd,
+        name.as_os_str(),
+        times,
+        rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+    )
+    .map_err(|e| io(format!("setting the times of {}", to.display()), e))
+}
+
+fn owner_ids(meta: &read::Meta) -> (Option<rustix::fs::Uid>, Option<rustix::fs::Gid>) {
+    (
+        Some(rustix::fs::Uid::from_raw(meta.uid)),
+        Some(rustix::fs::Gid::from_raw(meta.gid)),
+    )
+}
+
+/// Keep the source's owner where the kernel allows it.
+///
+/// An unprivileged process may not give a file away, so this fails with
+/// `EPERM` for anything the user does not already own — which, for a copy of
+/// the user's own config tree, is nothing. Failing the copy over it would
+/// mean `capture` could not run without root, which is the opposite of what
+/// this tool is for. The mismatch is visible: `verify` records uid and gid,
+/// and reports a difference in either.
+fn keep_owner<Fd: rustix::fd::AsFd>(fd: Fd, meta: &read::Meta) {
+    let (uid, gid) = owner_ids(meta);
+    let _ = rustix::fs::fchown(fd, uid, gid);
+}
+
+fn times_of(st: &rustix::fs::Stat) -> rustix::fs::Timestamps {
+    rustix::fs::Timestamps {
+        last_access: rustix::fs::Timespec {
+            tv_sec: st.st_atime as _,
+            tv_nsec: st.st_atime_nsec as _,
+        },
+        last_modification: rustix::fs::Timespec {
+            tv_sec: st.st_mtime as _,
+            tv_nsec: st.st_mtime_nsec as _,
+        },
+    }
+}
+
+#[allow(clippy::unnecessary_cast)]
+fn size_of_file<Fd: rustix::fd::AsFd>(fd: Fd, what: &Path) -> Result<u64> {
+    let st = rustix::fs::fstat(fd).map_err(|e| io(format!("stat {}", what.display()), e))?;
+    Ok(st.st_size as u64)
+}
+
+/// The fallback: 64K at a time, so a large file costs bounded memory.
+fn stream<SrcFd: rustix::fd::AsFd, DstFd: rustix::fd::AsFd>(
+    src: SrcFd,
+    dst: DstFd,
+    from: &Path,
+    to: &Path,
+) -> Result<u64> {
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut total = 0u64;
+    loop {
+        let n = rustix::io::read(&src, &mut buf[..])
+            .map_err(|e| io(format!("reading {}", from.display()), e))?;
+        if n == 0 {
+            return Ok(total);
+        }
+        let mut written = 0;
+        while written < n {
+            written += rustix::io::write(&dst, &buf[written..n])
+                .map_err(|e| io(format!("writing {}", to.display()), e))?;
+        }
+        total += n as u64;
+    }
+}

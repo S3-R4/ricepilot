@@ -52,7 +52,7 @@ pub struct Meta {
 // width on others, so these casts are a no-op on x86-64 and load-bearing
 // elsewhere.
 #[allow(clippy::unnecessary_cast)]
-fn meta_of(st: &rustix::fs::Stat) -> Meta {
+pub(super) fn meta_of(st: &rustix::fs::Stat) -> Meta {
     let mode = st.st_mode as u32;
     let kind = match mode & 0o170000 {
         0o040000 => Kind::Dir,

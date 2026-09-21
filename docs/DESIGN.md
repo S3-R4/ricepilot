@@ -26,7 +26,7 @@ are the design (see [SAFETY.md](SAFETY.md)).
     journal/                write-ahead log of an in-flight switch
     manifests/<name>.toml   blake3 manifest of a profile, recorded at switch
     attic/<ts>/             displaced objects, never deleted
-    baseline/               cp -a --reflink=auto copy taken at init
+    baseline/               reflinked copy of the rice, taken at init
     rescue.sh               standalone POSIX sh restore of generation N-1
 
 $XDG_RUNTIME_DIR/ricepilot.lock   flock(LOCK_EX|LOCK_NB), held process-wide
@@ -92,7 +92,7 @@ declared `generated` and left alone.
 | `plan.rs` | **pure** `(Observed, Target) -> Plan` | no |
 | `manifest.rs` | parse `profile.toml` | no |
 | `ops/read.rs` | `*at()`, `O_PATH\|O_NOFOLLOW`, `statfs` | yes, read-only |
-| `ops/mutate.rs` | the closed set of mutators | yes |
+| `ops/mutate.rs` | the closed set of mutators, including the copier | yes |
 | `ops/exec.rs` | closed subprocess allowlist | yes |
 | `ops/lock.rs` | `flock(LOCK_EX\|LOCK_NB)` | yes |
 | `journal.rs` | WAL, state-driven idempotent replay | via `ops` |
@@ -261,8 +261,10 @@ Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
 
 * `init` registers the live rice **by reference**, adopts the existing
   directory links only after explicit per-path confirmation, and takes a
-  `cp -a --reflink=auto` baseline copy (a copy, never a move) preserving
-  modes, symlinks-as-symlinks and times. It reports absolute symlinks found
+  baseline copy (a copy, never a move) preserving modes, symlinks-as-symlinks
+  and times. The copy is `ops::mutate::copy_tree`, not `cp`: reflink where the
+  filesystem offers it, and no mutating subprocess on the allowlist
+  ([DECISIONS.md](DECISIONS.md) D43). It reports absolute symlinks found
   inside the tree and proposes mode-600 files as `volatile` for confirmation.
 * `adopt` is the riskiest command — it is the only one that turns a real user
   directory into a link. Per path, confirmed, hash-verified before the
