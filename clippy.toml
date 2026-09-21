@@ -1,0 +1,16 @@
+# Belt-and-braces alongside scripts/check-*.sh: the greps are textual and
+# catch prose, clippy catches resolved paths (including ones reached through a
+# re-export or an alias that a grep would miss).
+disallowed-methods = [
+    { path = "std::fs::remove_file",     reason = "SAFETY.md R2: displace into the attic, never delete (src/gc/ only)" },
+    { path = "std::fs::remove_dir",      reason = "SAFETY.md R2: displace into the attic, never delete (src/gc/ only)" },
+    { path = "std::fs::remove_dir_all",  reason = "SAFETY.md R2: displace into the attic, never delete (src/gc/ only)" },
+    { path = "std::fs::canonicalize",    reason = "follows symlinks; use ops::read with O_PATH|O_NOFOLLOW" },
+    { path = "std::path::Path::canonicalize", reason = "follows symlinks; use ops::read with O_PATH|O_NOFOLLOW" },
+    { path = "std::path::Path::exists",  reason = "follows symlinks and races; use ops::read::lstat" },
+    { path = "std::path::Path::is_dir",  reason = "follows symlinks; use ops::read::lstat" },
+    { path = "std::path::Path::is_file", reason = "follows symlinks; use ops::read::lstat" },
+    { path = "std::fs::copy",            reason = "does not preserve mode/times/symlinks; capture has its own copier" },
+    { path = "std::fs::write",           reason = "not atomic; use ops::mutate::write_atomic" },
+    { path = "std::fs::File::set_len",   reason = "SAFETY.md R2: truncation is destruction" },
+]

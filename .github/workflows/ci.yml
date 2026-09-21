@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # The safety greps run first and without a toolchain: they are the cheapest
+  # check and the one whose failure matters most, so nothing else should have
+  # to succeed before a reviewer sees it.
+  safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No delete primitive outside src/gc/ (SAFETY.md R2)
+        run: ./scripts/check-no-delete.sh
+      - name: No filesystem or subprocess access outside src/ops/ (SAFETY.md R2)
+        run: ./scripts/check-ops-boundary.sh
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo build --locked
+      # Includes tests/guards.rs, which plants each forbidden construct in a
+      # fixture tree and asserts the scripts above still reject it.
+      - run: cargo test --locked
