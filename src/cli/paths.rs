@@ -16,6 +16,11 @@ pub struct Paths {
     pub data: PathBuf,
     /// `~/.local/state/ricepilot`
     pub state: PathBuf,
+    /// `$XDG_RUNTIME_DIR`, where the process lock lives. `None` when neither
+    /// override nor `XDG_RUNTIME_DIR` is set: a mutating command then refuses
+    /// rather than inventing a location, because a lock nobody else looks for
+    /// is worse than no lock at all.
+    pub runtime: Option<PathBuf>,
 }
 
 impl Paths {
@@ -43,7 +48,15 @@ impl Paths {
             Some(d) => PathBuf::from(d),
             None => home.join(".local/state/ricepilot"),
         };
-        Self { home, data, state }
+        let runtime = std::env::var_os("RICEPILOT_RUNTIME_DIR")
+            .or_else(|| std::env::var_os("XDG_RUNTIME_DIR"))
+            .map(PathBuf::from);
+        Self {
+            home,
+            data,
+            state,
+            runtime,
+        }
     }
 
     pub fn profiles_dir(&self) -> PathBuf {
@@ -64,6 +77,30 @@ impl Paths {
 
     pub fn ledger_path(&self) -> PathBuf {
         self.state.join("ledger.toml")
+    }
+
+    /// `state/journal/`. The in-flight record lives at `current.toml`; a
+    /// finished one is *renamed* to `done-<id>.toml`, never taken away.
+    pub fn journal_dir(&self) -> PathBuf {
+        self.state.join("journal")
+    }
+
+    pub fn journal_path(&self) -> PathBuf {
+        self.journal_dir().join("current.toml")
+    }
+
+    /// `$XDG_RUNTIME_DIR/ricepilot.lock`.
+    pub fn lock_path(&self) -> Result<PathBuf> {
+        match &self.runtime {
+            Some(r) => Ok(r.join("ricepilot.lock")),
+            None => Err(Error::Refused {
+                rule: "R4",
+                path: PathBuf::from("$XDG_RUNTIME_DIR"),
+                why: "neither RICEPILOT_RUNTIME_DIR nor XDG_RUNTIME_DIR is set, so there is \
+                      nowhere to take the lock that a second ricepilot would look in"
+                    .into(),
+            }),
+        }
     }
 }
 
