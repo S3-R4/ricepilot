@@ -8,6 +8,8 @@
 #![allow(clippy::disallowed_methods)]
 #![allow(dead_code)]
 
+pub mod scenario;
+
 use std::path::{Path, PathBuf};
 
 pub fn fixture_root() -> PathBuf {

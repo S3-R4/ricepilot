@@ -162,6 +162,22 @@ pub fn lstat(path: &Path) -> Result<Option<Meta>> {
     }
 }
 
+/// [`lstat`], but a missing *ancestor* directory also answers "absent".
+///
+/// `lstat` reports a missing intermediate component as an error, which is the
+/// right answer when the caller believes the directory is there. It is the
+/// wrong answer for "is there an in-flight journal?" on a machine where
+/// `state/journal/` has never been created: that is the ordinary case, not a
+/// fault.
+///
+/// A *symlinked* component still refuses (D9). Only absence is softened.
+pub fn lstat_or_absent(path: &Path) -> Result<Option<Meta>> {
+    match lstat(path) {
+        Err(Error::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        other => other,
+    }
+}
+
 /// Whether the final component resolves when symlinks *are* followed. Used
 /// only to label a symlink as dangling; we never open the resolved target.
 pub fn resolves(path: &Path) -> Result<bool> {
