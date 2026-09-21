@@ -154,14 +154,26 @@ commands.
 `rollback` re-applies generation `NNNN-1` through this same path — it is not a
 separate, less-tested code path. `recover` replays the journal by **observing
 reality** and deciding per destination whether it is old or new; it never
-blindly re-runs recorded steps.
+blindly re-runs recorded steps. Its direction is decided once for the whole
+switch and there are only two of them (D23): forward if any destination is
+already new or mid-exchange, otherwise the switch is abandoned and the staged
+links go to the attic.
 
 ### `RENAME_EXCHANGE` and its fallback
 
-`renameat2(RENAME_EXCHANGE)` is probed once at startup. Where the kernel or
-filesystem lacks it, the fallback is rename-to-attic-then-rename, which has a
-window in which the destination does not exist. Both paths are tested; the
-crash-injection harness (abort after step *k*, then `recover`) covers both.
+`renameat2(RENAME_EXCHANGE)` is probed once against two real symlinks in
+ricepilot's own state directory — the cheaper probes are false positives, see
+[DECISIONS.md](DECISIONS.md) D22.
+
+Where the kernel or filesystem lacks it, the fallback is three renames inside
+the destination's own directory (`b → b.rp-swap`, `a → b`, `b.rp-swap → a`),
+which reaches exactly the postcondition `RENAME_EXCHANGE` does so that the ops
+following it in the plan are the same either way (D19). It has a window in
+which the destination does not exist.
+
+Both paths are tested; the crash-injection harness (abort after step *k*, then
+`recover`) covers every *k* in both modes, in-process and again in a helper
+that really aborts.
 
 ## 7. Failure and recovery ladder
 

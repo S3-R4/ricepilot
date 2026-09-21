@@ -233,3 +233,181 @@ reached from the binary, and only ever operates under `target/fixtures/`.
 The alternative, a uniquely-named directory per run, avoids the primitive at
 the cost of accumulating fixture trees indefinitely. Recorded here so that a
 future reader who greps for the word in `tests/` knows it was deliberate.
+
+## D19 — The `RENAME_EXCHANGE` fallback reaches the atomic path's postcondition
+
+*M2.* The brief describes the fallback as "rename-to-attic-then-rename". That
+leaves the old link in the attic and the new one at the destination — which is
+*a* correct end state, but not the same one `renameat2(RENAME_EXCHANGE)`
+produces. `RENAME_EXCHANGE` leaves the old link at the staged name, and the
+ops that follow it in the plan (`RenameToAttic { from: staged, … }`) are
+written against that.
+
+Two postconditions means the printed plan and the executed plan differ
+depending on what the kernel supports, and R4's whole promise is that they are
+one value.
+
+The fallback is therefore three renames, all inside the destination's own
+directory:
+
+```
+b -> b.rp-swap      frees b
+a -> b              the window: nothing is at a
+b.rp-swap -> a
+```
+
+Same postcondition, same subsequent ops, no cross-directory rename that could
+meet an `EXDEV` the pre-flight did not predict. The cost is a window in which
+the destination does not exist, which is what `recover` is for, and which the
+crash-injection harness enumerates for every step in both modes.
+
+## D20 — The M2 gate's rollback property is proved at the ops level
+
+*M2.* The brief's M2 gate asks that "apply-then-rollback restores byte-exact
+link topology and leaves every pre-existing target's inode/mtime unchanged",
+but `rollback` is an M3 command. Building it early to satisfy an M2 gate would
+mean shipping the riskiest command in the tool before generations exist to
+give it something to roll back *to*.
+
+The property is proved where it actually lives: apply a plan, plan its
+inverse, apply that, then compare the live link targets against what they were
+and walk both profile trees comparing every `(dev, ino, mtime_ns)`. Both
+exchange modes. What is left for M3 is the `rollback` command's own concerns —
+which generation, and what to tell the user — not the atomicity property.
+
+## D21 — A created link has no exact inverse
+
+*M2.* Shape 5 (absent destination) is switched with a single `symlinkat`
+(D11). Undoing that means the destination should be absent again, and making
+something absent is a removal, which exists nowhere outside `src/gc/` (R2).
+
+The nearest honest thing is to displace the created link into the attic,
+leaving the destination absent without anything having been deleted. That is
+`rollback`'s decision to make and to word, so it is M3's. The M2 round-trip
+property is therefore stated over destinations that were exchanged, where an
+exact inverse does exist, and this is recorded rather than glossed.
+
+## D22 — The `RENAME_EXCHANGE` probe uses two real links, and keeps them
+
+*M2.* The two cheap probes are both false positives. Probing with names that
+do not exist answers `ENOENT` from path resolution before the filesystem ever
+sees the flag; probing a name against itself is short-circuited by the VFS
+before dispatch. Either reports support on a filesystem that has none, and the
+discovery would happen during phase B — the one moment in the design with no
+margin.
+
+So the probe creates `.rp-probe-a` and `.rp-probe-b` in ricepilot's own state
+directory and really exchanges them. They are reused on subsequent runs rather
+than cleaned up, because cleaning up is a removal (R2) and two symlinks are a
+small price for an honest answer.
+
+`exchange` takes the mode as an argument rather than consulting a global, so
+the fallback is testable on a kernel that supports `renameat2`. A gate that
+requires both paths covered is not met by "whichever one CI happened to take".
+
+## D23 — Recovery is driven by state, and its direction is decided once
+
+*M2.* The journal records the before-and-after of each destination, not a list
+of steps. `recover` reads each destination's live link target, plus the two
+sibling names the fallback can park a link at, and decides from what is there.
+
+A step log is the obvious design and the wrong one: it invites re-running a
+rename whose effect is already present against a filesystem that has moved on.
+State-driven replay is idempotent for free — a second pass finds every
+destination where the first drove it and emits nothing but the fsyncs, which
+is asserted directly.
+
+Direction is decided once for the whole switch, and there are only two. If any
+destination is already new — or mid-exchange, which means one has begun —
+recovery goes forward, because going back would undo something already in
+effect using the same window that just failed. If none is, no exchange
+happened, and the switch is abandoned. R5 forbids the third outcome, so the
+tests assert its absence rather than trusting the code to avoid it.
+
+A slot holding anything else is a refusal naming the path: something re-pointed
+a managed destination while ricepilot was down, and nothing in the journal says
+what.
+
+## D24 — A destination whose two states look identical is refused at journal time
+
+*M2.* State-driven recovery answers "which side is this on?" by comparing the
+live link target against the recorded old and new ones. If those two were the
+same string, no reading of the filesystem could tell the sides apart and
+"fully old or fully new" would stop being a checkable claim.
+
+The planner never emits such an entry — shape 1 with a matching target produces
+no op at all — but `Journal::from_plan` refuses it anyway. The property that
+recovery depends on is checked by recovery's own input, not assumed from a
+neighbouring module's behaviour.
+
+## D25 — A finished journal is renamed, not removed
+
+*M2.* `state/journal/current.toml` becomes `done-<id>.toml`. R2 has no
+exception for ricepilot's own bookkeeping, and the sequence of switches a
+machine has been through is the first thing anyone wants when it did not come
+back up.
+
+Retiring it is also deliberately *not* one of the recovery actions, and happens
+only after every action has succeeded. While the journal is in place the
+machine can be recovered again; a recovery that failed half way must not have
+taken that away as its first act.
+
+## D26 — The crash helper is an example, not a `[[bin]]`
+
+*M2.* The gate requires aborting after step *k* for every *k*. In-process
+injection covers every intermediate state, but it cannot prove the journal
+reached the disk before the state it describes existed — the process asserting
+that is the process that wrote it.
+
+`examples/crash_switch` closes the gap by calling `std::process::abort()`
+(not `panic!`, which unwinds, runs destructors and flushes). It lives in
+`examples/` because a helper whose entire purpose is to abort a switch half way
+through belongs neither inside the boundary the guard scripts protect nor in
+anything `cargo install` would put on a machine. The cost is that `cargo test`
+neither builds it nor exports a `CARGO_BIN_EXE_*` for it, so the test builds it
+on demand through the `cargo` that invoked it.
+
+It reuses `tests/common/` through `#[path]` so the scenario the helper crashes
+and the scenario the test inspects are the same code.
+
+## D27 — `recover` takes the lock for its dry run too
+
+*M2.* A dry run has no effects on anything ricepilot manages, so the lock looks
+unnecessary. It is not: reading a half-finished switch while another ricepilot
+is in the middle of finishing it produces a report about a machine that has
+stopped existing by the time it is printed. A dry run whose answer is stale is
+worse than one that declines, because its whole purpose is to be the thing the
+user decides on.
+
+The observable cost is that `recover` creates its lock file in
+`$XDG_RUNTIME_DIR` even when it changes nothing.
+
+## D28 — With no runtime directory, there is no lock location to invent
+
+*M2.* `Paths::lock_path()` refuses when neither `RICEPILOT_RUNTIME_DIR` nor
+`XDG_RUNTIME_DIR` is set, rather than falling back to the state directory.
+
+A lock in a location no other ricepilot looks in reads as mutual exclusion and
+provides none — strictly worse than no lock, because it is silent. The override
+exists for D16's reason: the tests run under `env_clear()` and must be able to
+say where the lock goes when there is no real `$XDG_RUNTIME_DIR` to find.
+
+## D29 — `lstat_or_absent`, for a directory that has never existed
+
+*M2.* `ops::read::lstat` reports a missing *intermediate* component as an
+error, which is right when the caller believes the directory is there. It is
+the wrong answer for "is there an in-flight journal?" on a machine where
+`state/journal/` has never been created — the ordinary case, not a fault.
+
+`lstat_or_absent` softens absence and nothing else: a *symlinked* component
+still refuses, so D9 is untouched.
+
+## D30 — Fixture cases start from an empty tree
+
+*M2.* M1's harness recreated a case's contents over whatever was there. A
+crash-injection case is *defined* by the exact state it starts from, so a
+staged link left by the previous run would make it pass or fail for a reason
+unrelated to the code — as it did, twice, while this milestone was being built.
+
+Each case's directory is now emptied first. D18 already covers why the harness
+may call a removal function and the crate may not.
