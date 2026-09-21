@@ -229,8 +229,8 @@ fn plan_against_a_real_directory() {
 /// this tool could do.
 #[test]
 fn a_command_from_a_later_milestone_is_not_implemented_and_says_so() {
-    let f = with_caelestia("cli_init");
-    let r = run(&f, &["init", "--commit"]);
+    let f = with_caelestia("cli_diff");
+    let r = run(&f, &["diff", "caelestia"]);
     assert_eq!(r.code, ricepilot::error::ExitCode::NotPossible as i32);
     insta::assert_snapshot!(r.stderr);
 }

@@ -902,3 +902,41 @@ truthful), regenerates `rescue.sh` for the generation before it (which has no
 entry for the adopted path, so rescue leaves it alone — correct), and its
 committed output names the attic path, gives the two-command way back by
 hand, and states in as many words that `rollback` will not do it.
+
+## D50 — `init --root` is required, and "adopting a link" means recording it
+
+*M4.* Two things about `init` that are easy to misread.
+
+**The root is named, never discovered.** It would be easy to find the rice by
+reading `~/.config`, collecting the symlink targets and taking their common
+ancestor — on the target machine that would even work. It is not done.
+DESIGN §9 says management is allowlist-only: a path is managed because a
+manifest names it, never because it happened to be found, and the tree those
+paths point into is the most load-bearing name of all. A wrong answer there
+would register the wrong directory as the profile's root and make every
+later ownership judgement wrong in the same direction. So `--root` is
+required and the refusal names the likely answer rather than assuming it.
+
+**Adopting an existing link is a ledger row, not a mutation.** The links
+`init` adopts already exist and already point where they point. Adopting one
+writes a `ledger.toml` row recording its path, target and `(dev, ino)` — the
+third fact of the ownership predicate — which is what makes a later `switch`
+willing to act on it instead of refusing it as unowned. Nothing is created,
+moved or retargeted, and the rice clone is never written to. `init` on a
+by-reference rice makes **no** live mutation at all, which is why it has no
+journal, for the same reason `capture` has none (D45).
+
+That is also why `init` reports the links it will not offer rather than
+omitting them. caelestia links `~/.config/uwsm`, which is hard-denylisted;
+a link into the rice that currently resolves to nothing is another. Both are
+facts about the rice worth hearing, and leaving them out of the report
+because they are inactionable would make the report a list of what ricepilot
+found convenient rather than what is there (R7).
+
+The mode-600 proposal is one question for the set rather than one per file.
+`volatile` is a manifest *classification*, not something that gets touched —
+R6's per-path rule is about paths ricepilot would act on — the files are
+listed immediately above the question, and the manifest is a file the user
+owns and can edit. Asking twenty times for a decision that changes no path
+would train someone to answer without reading, which is the failure mode R6
+exists to avoid.

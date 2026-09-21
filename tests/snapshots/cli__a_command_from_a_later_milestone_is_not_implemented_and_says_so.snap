@@ -2,4 +2,4 @@
 source: tests/cli.rs
 expression: r.stderr
 ---
-ricepilot: not possible: `init` is not implemented yet; M1 ships the read-only commands plan, status, list and show, M2 adds recover, M3 adds switch, rollback, verify and rescue, and M4 adds capture, adopt and init [see docs/NOT-POSSIBLE.md#not-yet-implemented]
+ricepilot: not possible: `diff` is not implemented yet; M1 ships the read-only commands plan, status, list and show, M2 adds recover, M3 adds switch, rollback, verify and rescue, and M4 adds capture, adopt and init. `diff`, `gc` and `doctor` are M5 [see docs/NOT-POSSIBLE.md#not-yet-implemented]

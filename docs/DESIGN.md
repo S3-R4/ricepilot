@@ -275,12 +275,17 @@ Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
   rename, and there is no journal because there is no live mutation to
   recover ([DECISIONS.md](DECISIONS.md) D45).
 
-* `init` registers the live rice **by reference**, adopts the existing
-  directory links only after explicit per-path confirmation, and takes a
-  baseline copy (a copy, never a move) preserving modes, symlinks-as-symlinks
-  and times. The copy is `ops::mutate::copy_tree`, not `cp`: reflink where the
-  filesystem offers it, and no mutating subprocess on the allowlist
-  ([DECISIONS.md](DECISIONS.md) D43). It reports absolute symlinks found
+* `init --root <dir>` registers the live rice **by reference**, adopts the
+  existing directory links only after explicit per-path confirmation, and
+  takes a baseline copy (a copy, never a move) preserving modes,
+  symlinks-as-symlinks and times. The copy is `ops::mutate::copy_tree`, not
+  `cp`: reflink where the filesystem offers it, and no mutating subprocess on
+  the allowlist ([DECISIONS.md](DECISIONS.md) D43). The root is named, never
+  discovered, and "adopting" an existing link means recording it in the
+  ledger — `init` makes no live mutation at all, so like `capture` it has no
+  journal (D50). It reports absolute symlinks found inside the tree, proposes
+  mode-600 files as `volatile`, and names the links it will *not* offer:
+  caelestia links `~/.config/uwsm`, which is denylisted. It reports absolute symlinks found
   inside the tree and proposes mode-600 files as `volatile` for confirmation.
 * `adopt` is the riskiest command — it is the only one that turns a real user
   directory into a link. Per path, confirmed, hash-verified before the

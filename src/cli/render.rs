@@ -863,3 +863,198 @@ pub fn adopt_done(
     let _ = writeln!(s, "  sh {}", script.display());
     s
 }
+
+// ---------------------------------------------------------------------------
+// init
+// ---------------------------------------------------------------------------
+
+/// `ricepilot init` — what was found, and what will be asked about.
+pub fn init_header(i: &super::init::Init, committing: bool) -> String {
+    let mut s = String::new();
+    let _ = writeln!(s, "init: register `{}` by reference", i.name);
+    let _ = writeln!(s, "root:     {}", i.root.display());
+    let _ = writeln!(s, "profile:  {}", i.dir.display());
+    let _ = writeln!(s, "baseline: {}", i.baseline.display());
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "by reference means the profile's payload is your own tree. ricepilot reads it,"
+    );
+    let _ = writeln!(
+        s,
+        "never writes to it, and never runs an installer over it."
+    );
+    let _ = writeln!(s);
+
+    let _ = writeln!(s, "the tree:");
+    let _ = write!(s, "{}", survey_block("  ", &i.survey));
+    let _ = writeln!(s);
+
+    let _ = writeln!(
+        s,
+        "links in {} that already point into it:",
+        i.config_dir.display()
+    );
+    if i.candidates.is_empty() {
+        let _ = writeln!(
+            s,
+            "  (none. nothing here points into that tree, so there is nothing to adopt.)"
+        );
+    }
+    for c in &i.candidates {
+        let _ = writeln!(
+            s,
+            "  {} -> {}",
+            c.link.dest.display(),
+            c.link.target.display()
+        );
+        match &c.blocked {
+            Some(why) => {
+                let _ = writeln!(s, "      not offered: {why}");
+            }
+            None => {
+                let _ = writeln!(
+                    s,
+                    "      {} adopt this link (it is not moved, retargeted or re-created —",
+                    if committing {
+                        "will ask whether to"
+                    } else {
+                        "would ask whether to"
+                    }
+                );
+                let _ = writeln!(
+                    s,
+                    "      only recorded as one ricepilot owns, so `switch` can act on it)"
+                );
+            }
+        }
+    }
+    let _ = writeln!(s);
+
+    let proposed = i.proposed_volatile();
+    if !proposed.is_empty() {
+        let _ = writeln!(
+            s,
+            "{} owner-only file(s) will be proposed as `volatile`, so their contents are not",
+            proposed.len()
+        );
+        let _ = writeln!(
+            s,
+            "hashed into a manifest. they are listed above; it is one question, and the"
+        );
+        let _ = writeln!(s, "manifest is yours to edit afterwards.");
+        let _ = writeln!(s);
+    }
+
+    let _ = writeln!(
+        s,
+        "nothing in {} is moved, created or retargeted by this command. the baseline",
+        i.config_dir.display()
+    );
+    let _ = writeln!(
+        s,
+        "is a copy, never a move: your tree stays exactly where it is."
+    );
+    s
+}
+
+/// The question asked per link. It names the path and says what happens to
+/// it, because R6 exists so a person sees what is about to be touched.
+pub fn init_question(c: &super::init::Candidate) -> String {
+    format!(
+        "record {} -> {} as a link ricepilot owns?",
+        c.link.dest.display(),
+        c.link.target.display()
+    )
+}
+
+/// The volatile proposal. One question for the set: it is a manifest
+/// classification rather than something that gets touched, the files are
+/// listed above it, and the manifest can be edited afterwards.
+pub fn init_volatile_question(proposed: &[String]) -> String {
+    format!(
+        "declare {} owner-only file(s) `volatile`, excluding them from hashing?",
+        proposed.len()
+    )
+}
+
+pub const INIT_UNCOMMITTED: &str = "\nnothing has been changed. re-run with --commit to \
+register it.\n--commit asks about each link separately; anything you do not say yes to is \
+left\nunregistered, and nothing on the live machine moves either way.\n";
+
+/// The committed tail.
+pub fn init_done(
+    i: &super::init::Init,
+    adopted: &[std::path::PathBuf],
+    volatile: &[String],
+    stats: &crate::ops::mutate::CopyStats,
+) -> String {
+    let mut s = String::new();
+    let _ = writeln!(s);
+    let _ = writeln!(s, "registered. profile `{}` is at:", i.name);
+    let _ = writeln!(s, "  {}", i.dir.display());
+    let _ = writeln!(s);
+    if adopted.is_empty() {
+        let _ = writeln!(
+            s,
+            "no links were adopted. the profile is registered and owns nothing, so `switch`"
+        );
+        let _ = writeln!(
+            s,
+            "will still refuse every destination as unowned — which is the correct outcome"
+        );
+        let _ = writeln!(s, "of having said no.");
+    } else {
+        let _ = writeln!(s, "{} link(s) are now owned by it:", adopted.len());
+        for d in adopted {
+            let _ = writeln!(s, "  {}", d.display());
+        }
+        let _ = writeln!(
+            s,
+            "none of them was moved or retargeted. they point where they always pointed;"
+        );
+        let _ = writeln!(
+            s,
+            "ricepilot has recorded their identity, which is what lets `switch` act on them."
+        );
+    }
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "volatile globs: {}",
+        if volatile.is_empty() {
+            "(none declared)".to_string()
+        } else {
+            volatile.join(", ")
+        }
+    );
+    let _ = writeln!(s);
+    let _ = writeln!(s, "a baseline copy of the tree is at:");
+    let _ = writeln!(s, "  {}", i.baseline.display());
+    let _ = writeln!(
+        s,
+        "  {} director(ies), {} file(s), {} symlink(s), {} byte(s)",
+        stats.dirs, stats.files, stats.links, stats.bytes
+    );
+    let _ = writeln!(s, "{}", reflink_note(stats));
+    let _ = writeln!(
+        s,
+        "it is a copy. your tree is untouched and still where it was."
+    );
+    let _ = writeln!(s);
+    let _ = writeln!(s, "next:");
+    let _ = writeln!(
+        s,
+        "  ricepilot status                  what ricepilot now believes it owns"
+    );
+    let _ = writeln!(
+        s,
+        "  ricepilot verify {}          compare the tree against nothing yet — a manifest",
+        i.name
+    );
+    let _ = writeln!(
+        s,
+        "                                    is recorded the first time you switch to it"
+    );
+    s
+}

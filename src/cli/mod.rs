@@ -7,6 +7,7 @@
 pub mod adopt;
 pub mod capture;
 pub mod confirm;
+pub mod init;
 pub mod paths;
 pub mod render;
 pub mod switch;
@@ -28,6 +29,14 @@ pub struct Cli {
 pub enum Command {
     /// Register the live rice by reference and take a baseline copy.
     Init {
+        /// The rice tree to register — for caelestia,
+        /// `~/.local/share/caelestia`. Required: ricepilot manages what you
+        /// name, never what it happened to find.
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+        /// The profile's name. Defaults to the root directory's own name.
+        #[arg(long)]
+        name: Option<String>,
         #[arg(long)]
         commit: bool,
     },
@@ -157,6 +166,9 @@ pub fn run(command: Command) -> Result<Output> {
             commit,
         } => capture::run(&paths, &profile, &from, commit),
         Command::Adopt { path, into, commit } => adopt::run(&paths, &path, &into, commit),
+        Command::Init { root, name, commit } => {
+            init::run(&paths, root.as_deref(), name.as_deref(), commit)
+        }
 
         // Mutating commands and the remaining read-only ones arrive in later
         // milestones. Saying so and exiting non-zero is the honest answer;
@@ -166,7 +178,8 @@ pub fn run(command: Command) -> Result<Output> {
             why: format!(
                 "`{}` is not implemented yet; M1 ships the read-only commands \
                  plan, status, list and show, M2 adds recover, M3 adds switch, \
-                 rollback, verify and rescue, and M4 adds capture, adopt and init",
+                 rollback, verify and rescue, and M4 adds capture, adopt and init. \
+                 `diff`, `gc` and `doctor` are M5",
                 subcommand_name(&other)
             ),
         }),

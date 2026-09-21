@@ -1,0 +1,16 @@
+---
+source: tests/cli_init.rs
+expression: status.stdout
+---
+home:      <HOME>
+data:      <HOME>/.local/share/ricepilot
+state:     <HOME>/.local/state/ricepilot
+profiles:  1
+             caelestia
+owned:     2 path(s)
+             <HOME>/.config/foot -> <HOME>/rice/caelestia/foot (caelestia)
+             <HOME>/.config/hypr -> <HOME>/rice/caelestia/hypr (caelestia)
+generation: none — ricepilot has not switched anything on this machine
+
+drift reporting at switch time is not implemented yet (milestone M5); `ricepilot verify <profile>`
+compares a profile against the manifest its switch recorded.

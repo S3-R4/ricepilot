@@ -1,0 +1,16 @@
+---
+source: tests/cli_init.rs
+expression: s
+---
+with no --root
+  exit 2  ricepilot: refusing: name the rice to register, with `--root <dir>` — for a caelestia install that is `~/.local/share/caelestia`. ricepilot does not go looking: a path is managed because you named it, and that applies to the tree as much as to the destinations (<HOME>/.local/share) [R6]
+a root that is not there
+  exit 2  ricepilot: refusing: there is nothing here to register (<HOME>/rice/nothing) [R4]
+a root that is a regular file
+  exit 2  ricepilot: refusing: is not a directory. a profile's root is the tree its destinations point into (<HOME>/rice/loose) [R4]
+a relative root
+  exit 2  ricepilot: refusing: must be an absolute path or start with `~` (rice/caelestia) [R1]
+a profile name that is a path
+  exit 2  ricepilot: profile `../escape`: profile name must be a single directory name
+registering a profile that already exists
+  exit 2  ricepilot: refusing: profile `caelestia` is already registered. ricepilot never writes over a profile; `ricepilot show caelestia` says what it holds (<HOME>/.local/share/ricepilot/profiles/caelestia) [R2]

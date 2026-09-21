@@ -1,0 +1,67 @@
+---
+source: tests/cli_init.rs
+expression: r.stdout
+---
+init: register `caelestia` by reference
+root:     <HOME>/rice/caelestia
+profile:  <HOME>/.local/share/ricepilot/profiles/caelestia
+baseline: <HOME>/.local/state/ricepilot/baseline/caelestia
+
+by reference means the profile's payload is your own tree. ricepilot reads it,
+never writes to it, and never runs an installer over it.
+
+the tree:
+  5 director(ies), 5 file(s), 1 symlink(s), 37 byte(s)
+
+  1 absolute symlink(s) inside the tree. ricepilot copies a link as a link and
+  never rewrites one, so each of these keeps pointing where it points now:
+    zen/userChrome.link -> <HOME>/rice/caelestia/zen/userChrome.css  (back into this tree)
+
+  1 file(s) only their owner can read. a mode-600 file in a config tree is
+  usually a token or a key; consider declaring it `volatile` so its content is
+  not hashed into a manifest:
+    0600  .secret
+
+links in <HOME>/.config that already point into it:
+  <HOME>/.config/btop -> <HOME>/rice/caelestia/btop
+      not offered: does not point at a directory right now. v1 activates directory links only, and a link into the rice that resolves to nothing is worth looking at before it is registered as healthy
+  <HOME>/.config/foot -> <HOME>/rice/caelestia/foot
+      will ask whether to adopt this link (it is not moved, retargeted or re-created —
+      only recorded as one ricepilot owns, so `switch` can act on it)
+  <HOME>/.config/hypr -> <HOME>/rice/caelestia/hypr
+      will ask whether to adopt this link (it is not moved, retargeted or re-created —
+      only recorded as one ricepilot owns, so `switch` can act on it)
+  <HOME>/.config/uwsm -> <HOME>/rice/caelestia/uwsm
+      not offered: inside `~/.config/uwsm`, which v1 will not manage under any circumstances
+
+1 owner-only file(s) will be proposed as `volatile`, so their contents are not
+hashed into a manifest. they are listed above; it is one question, and the
+manifest is yours to edit afterwards.
+
+nothing in <HOME>/.config is moved, created or retargeted by this command. the baseline
+is a copy, never a move: your tree stays exactly where it is.
+record <HOME>/.config/foot -> <HOME>/rice/caelestia/foot as a link ricepilot owns? [y/N] yes
+record <HOME>/.config/hypr -> <HOME>/rice/caelestia/hypr as a link ricepilot owns? [y/N] yes
+declare 1 owner-only file(s) `volatile`, excluding them from hashing? [y/N] yes
+
+registered. profile `caelestia` is at:
+  <HOME>/.local/share/ricepilot/profiles/caelestia
+
+2 link(s) are now owned by it:
+  <HOME>/.config/foot
+  <HOME>/.config/hypr
+none of them was moved or retargeted. they point where they always pointed;
+ricepilot has recorded their identity, which is what lets `switch` act on them.
+
+volatile globs: .secret
+
+a baseline copy of the tree is at:
+  <HOME>/.local/state/ricepilot/baseline/caelestia
+  5 director(ies), 5 file(s), 1 symlink(s), 37 byte(s)
+  reflinked: <depends on the filesystem>
+it is a copy. your tree is untouched and still where it was.
+
+next:
+  ricepilot status                  what ricepilot now believes it owns
+  ricepilot verify caelestia          compare the tree against nothing yet — a manifest
+                                    is recorded the first time you switch to it
