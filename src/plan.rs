@@ -101,6 +101,14 @@ pub enum Refusal {
         dest: PathBuf,
         entry: &'static str,
     },
+    /// The destination is an *ancestor* of a denylisted entry — `~/.config`,
+    /// `~` itself, `/` — so a link there would put that entry inside the
+    /// profile just as surely as naming it (D71). `entry` is `"~"` when the
+    /// destination is the home directory or above it.
+    ContainsDenylisted {
+        dest: PathBuf,
+        entry: &'static str,
+    },
     Mountpoint {
         dest: PathBuf,
     },
@@ -180,6 +188,7 @@ impl Refusal {
             Refusal::Unowned { .. }
             | Refusal::RealDirAtDest { .. }
             | Refusal::Denylisted { .. }
+            | Refusal::ContainsDenylisted { .. }
             | Refusal::SourceMissing { .. }
             | Refusal::NotObserved { .. } => "R4",
             Refusal::ProfileOccupied { .. } => "R3",
@@ -233,6 +242,19 @@ impl fmt::Display for Refusal {
             Refusal::Denylisted { dest, entry } => write!(
                 f,
                 "{}: is inside `{entry}`, which v1 will not manage under any circumstances.",
+                dest.display()
+            ),
+            Refusal::ContainsDenylisted { dest, entry: "~" } => write!(
+                f,
+                "{}: is your home directory or above it, which v1 will not manage: a link \
+                 here would hand `~/.ssh`, `~/.config/uwsm` and every other denylisted path \
+                 to the profile.",
+                dest.display()
+            ),
+            Refusal::ContainsDenylisted { dest, entry } => write!(
+                f,
+                "{}: contains `{entry}`, which v1 will not manage under any circumstances. A \
+                 link here would put it inside the profile too.",
                 dest.display()
             ),
             Refusal::Mountpoint { dest } => write!(
@@ -518,7 +540,8 @@ impl PlanContext {
 }
 
 /// `docs/DESIGN.md` §9. Hard for v1: a destination at or under one of these
-/// is refused even if a manifest names it explicitly. Entries are `~`-relative
+/// is refused even if a manifest names it explicitly, and so is one *above*
+/// one of them — `~/.config`, `~` — which would take it in whole (D71). Entries are `~`-relative
 /// and expanded against [`PlanContext::home`].
 pub const DENYLIST: &[&str] = &[
     "~/.config/uwsm",
@@ -544,11 +567,36 @@ pub const DENYLIST: &[&str] = &[
     "~/.config/VSCodium",
 ];
 
-fn denylist_hit(dest: &Path, home: &Path) -> Option<&'static str> {
-    DENYLIST.iter().copied().find(|entry| {
-        let expanded = crate::manifest::expand_home(Path::new(entry), home);
-        dest == expanded || dest.starts_with(&expanded)
-    })
+/// The refusal for a destination the denylist rules out, if any: one at or
+/// under an entry, or one that is an ancestor of an entry. The home
+/// directory and everything above it is an ancestor of every entry, and is
+/// named as such rather than by whichever entry happens to come first.
+pub fn denylist_hit(dest: &Path, home: &Path) -> Option<Refusal> {
+    let expanded = |entry: &str| crate::manifest::expand_home(Path::new(entry), home);
+    if let Some(entry) = DENYLIST
+        .iter()
+        .copied()
+        .find(|entry| dest.starts_with(expanded(entry)))
+    {
+        return Some(Refusal::Denylisted {
+            dest: dest.to_path_buf(),
+            entry,
+        });
+    }
+    if home.starts_with(dest) {
+        return Some(Refusal::ContainsDenylisted {
+            dest: dest.to_path_buf(),
+            entry: "~",
+        });
+    }
+    DENYLIST
+        .iter()
+        .copied()
+        .find(|entry| expanded(entry).starts_with(dest))
+        .map(|entry| Refusal::ContainsDenylisted {
+            dest: dest.to_path_buf(),
+            entry,
+        })
 }
 
 /// The temp name a staged link takes: a sibling of the destination, so the
@@ -657,11 +705,8 @@ pub fn plan(observed: &[Observed], target: &[Target], ctx: &PlanContext) -> Plan
             continue;
         };
 
-        if let Some(entry) = denylist_hit(&t.dest, &ctx.home) {
-            refusals.push(Refusal::Denylisted {
-                dest: t.dest.clone(),
-                entry,
-            });
+        if let Some(refusal) = denylist_hit(&t.dest, &ctx.home) {
+            refusals.push(refusal);
             continue;
         }
 
@@ -863,11 +908,8 @@ pub fn plan_adopt(observed: &Observed, target: &Target, ctx: &PlanContext) -> Pl
     let dest = &target.dest;
     let mut refusals: Vec<Refusal> = Vec::new();
 
-    if let Some(entry) = denylist_hit(dest, &ctx.home) {
-        refusals.push(Refusal::Denylisted {
-            dest: dest.clone(),
-            entry,
-        });
+    if let Some(refusal) = denylist_hit(dest, &ctx.home) {
+        refusals.push(refusal);
     }
     if observed.is_mountpoint {
         refusals.push(Refusal::Mountpoint { dest: dest.clone() });

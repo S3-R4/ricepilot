@@ -8,6 +8,8 @@ expression: "ricepilot::cli::render::refusal_list(&refusals)"
   [R5] /home/u/.config/starship.toml: is a regular file. v1 activates directory links only; file deployment is v1.1.
   [R4] /home/u/.config/hypr: sits on device 66 but the attic is on device 70. `rename(2)` across filesystems fails with EXDEV, so nothing could be displaced safely.
   [R4] /home/u/.config/uwsm: is inside `~/.config/uwsm`, which v1 will not manage under any circumstances.
+  [R4] /home/u/.config: contains `~/.config/uwsm`, which v1 will not manage under any circumstances. A link here would put it inside the profile too.
+  [R4] /home/u: is your home directory or above it, which v1 will not manage: a link here would hand `~/.ssh`, `~/.config/uwsm` and every other denylisted path to the profile.
   [R4] /home/u/.config/mounted: is a mount point. Renaming it would cross a filesystem boundary.
   [R4] /home/u/.config/quickshell/overview: is nested inside the managed destination /home/u/.config/quickshell. Switching both would make the inner one's meaning depend on the order of two renames.
   [R4] this profile requires packages that are not installed: hyprland, foot. ricepilot never installs anything; run: paru -S --needed hyprland foot

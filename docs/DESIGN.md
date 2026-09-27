@@ -298,6 +298,10 @@ an identical copy and the destination is ricepilot's link again (D61).
 `pulse`, `mimeapps.list`, `user-dirs.*`, browser and Electron directories,
 `~/.ssh`, `~/.gnupg`, keyrings, and editor `settings.json`.
 
+A destination at, under **or above** one of these is refused: `~/.config`,
+`~/.local/share` and `~` itself would take a denylisted path in with them
+(D71).
+
 `~/.config` holds 128 entries and ~7.9 GB, of which ~20 are rice. Management
 is therefore **allowlist-only**: a path is managed because a manifest names
 it, never because it happened to be found.

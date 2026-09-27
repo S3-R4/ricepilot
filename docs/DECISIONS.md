@@ -2440,3 +2440,29 @@ if something reappears at a displaced destination between two runs of the
 same script, the second run's move into `rescue-NNNN` replaces what the
 first parked there. Both are from reading the script, not run. Changing the script changes every script's bytes, and so what
 `doctor` and `--relogin` call stale; it is left for its own change.
+
+## D71 — A destination above a denylisted entry is refused too, and `~` is named as such
+
+*M5, red-team #2 finding 7.* `denylist_hit` refused a destination *at or
+under* an entry. A manifest could still name `dest = "~/.config"` — or
+`~`, or `/` — and the link would have put `~/.config/uwsm`, `~/.ssh` and
+the rest inside the profile just as surely as naming them: the denylist
+bounded the names, not what a link covers. An installer that turned such
+a link back into a directory would then be writing session and credential
+state into a tree ricepilot switches away.
+
+**The rule is now "at, under or above".** A destination that is an
+ancestor (component-wise, so `~/.conf` is not an ancestor of `~/.config`)
+of any entry is refused with the new `Refusal::ContainsDenylisted`, rule R4
+like the rest of the denylist. The home directory and everything above it
+is an ancestor of every entry, so it is named as that — "is your home
+directory or above it" — rather than by whichever entry the list happens to
+start with. `plan` (every switch and rollback) and `plan_adopt` share the
+check, and so does `init`'s list of live links it will not offer, which
+used to spell the old test out itself.
+
+A refusal rather than a warning, because the only way to honour the
+denylist under such a link is not to make it; and not "manage it but skip
+the denied children", because a directory link has no children of its own
+to skip.
+

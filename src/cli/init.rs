@@ -167,13 +167,18 @@ pub fn plan_it(paths: &Paths, root: Option<&std::path::Path>, name: Option<&str>
 
 /// Why a link into the rice cannot be adopted. `None` means it can.
 fn blocked_because(link: &survey::LiveLink, paths: &Paths) -> Option<String> {
-    for entry in plan::DENYLIST {
-        let expanded = crate::manifest::expand_home(std::path::Path::new(entry), &paths.home);
-        if link.dest == expanded || link.dest.starts_with(&expanded) {
+    match plan::denylist_hit(&link.dest, &paths.home) {
+        Some(plan::Refusal::Denylisted { entry, .. }) => {
             return Some(format!(
                 "inside `{entry}`, which v1 will not manage under any circumstances"
             ));
         }
+        Some(plan::Refusal::ContainsDenylisted { entry, .. }) => {
+            return Some(format!(
+                "contains `{entry}`, which v1 will not manage under any circumstances (D71)"
+            ));
+        }
+        _ => {}
     }
     if !link.points_at_dir {
         return Some(

@@ -161,6 +161,14 @@ fn every_refusal_message() {
             dest: PathBuf::from("/home/u/.config/uwsm"),
             entry: "~/.config/uwsm",
         },
+        Refusal::ContainsDenylisted {
+            dest: PathBuf::from("/home/u/.config"),
+            entry: "~/.config/uwsm",
+        },
+        Refusal::ContainsDenylisted {
+            dest: PathBuf::from("/home/u"),
+            entry: "~",
+        },
         Refusal::Mountpoint {
             dest: PathBuf::from("/home/u/.config/mounted"),
         },
@@ -207,6 +215,41 @@ fn a_denylisted_destination_is_refused_even_when_a_manifest_names_it() {
         &obs,
         &plan(&obs, &tgt, &ctx())
     ));
+}
+
+/// A destination *above* a denylisted entry takes the entry in with it, so
+/// it is refused as well (D71): `~/.config` would swallow `~/.config/uwsm`,
+/// `~/.local/share` the keyrings, and `~` or anything above it everything.
+/// A sibling that only shares a prefix of characters is not an ancestor.
+#[test]
+fn an_ancestor_of_a_denylisted_destination_is_refused() {
+    let mut out = String::new();
+    for d in [
+        "/home/u/.config",
+        "/home/u/.local/share",
+        "/home/u",
+        "/home",
+        "/",
+        "/home/u/.conf",
+    ] {
+        let d = PathBuf::from(d);
+        let obs = vec![Observed {
+            dest: d.clone(),
+            shape: Shape::RealDir,
+            parent_dev: DEV,
+            parent_fs_type: 0,
+            is_mountpoint: false,
+        }];
+        let tgt = vec![Target {
+            dest: d.clone(),
+            src: src("new", "all"),
+        }];
+        let p = plan(&obs, &tgt, &ctx());
+        out.push_str(&format!("## dest {}\n", d.display()));
+        out.push_str(&ricepilot::cli::render::plan("new", &obs, &p));
+        out.push('\n');
+    }
+    insta::assert_snapshot!(out);
 }
 
 #[test]

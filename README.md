@@ -269,8 +269,9 @@ What ricepilot does not do, or does not know, and what that costs you.
   is a real file is refused. File links that already exist (caelestia's
   `starship.toml`, `codium-flags.conf`) are left alone. `generated` and
   `volatile` are classifications, never activated.
-- **The denylist is hard.** A destination at or under any of these is refused
-  even when a manifest names it (`src/plan.rs`, `DENYLIST`):
+- **The denylist is hard.** A destination at or under any of these — or
+  above one, such as `~/.config` or `~` itself, which would take it in whole
+  — is refused even when a manifest names it (`src/plan.rs`, `DENYLIST`):
   `~/.config/uwsm`, `~/.config/systemd`, `~/.config/environment.d`,
   `~/.config/autostart`, `~/.config/dconf`, `~/.config/pulse`,
   `~/.config/mimeapps.list`, `~/.config/user-dirs.dirs`,
