@@ -2127,3 +2127,63 @@ Proved by running the PKGBUILD's `prepare`, `build`, `check` and `package`
 by hand on a clone under `target/fixtures/`, a path longer than makepkg's:
 the socket test that failed there passes, and so does the rest of the suite
 (382 tests).
+
+## D65 — The PKGBUILD lives in `packaging/arch/`, builds what is committed, and uses the network only in `prepare()`
+
+*M5.* The brief asked for a PKGBUILD at the repository root. It is not
+there, because of where makepkg builds. makepkg's build directory defaults
+to the directory the PKGBUILD is in, and within it `$srcdir` is `src/` and
+`$pkgdir`'s base is `pkg/`. At the root, `$srcdir` is the crate's own
+`src/`: a plain `makepkg` would unpack a second checkout into the Rust
+sources (and the no-delete grep, which scans `src/` recursively, would then
+fail on that checkout's `src/gc/`), and `makepkg --clean` and
+`--cleanbuild` run `rm -rf "$srcdir"` — the Rust sources themselves. A
+tool whose one rule is not to destroy what it did not create should not
+ship a build file that does that when given a common flag. In
+`packaging/arch/`, `src/`, `pkg/` and the mirror clone makepkg keeps are
+that directory's own, and `.gitignore` covers them.
+
+**Source.** `git+file://` of the repository the PKGBUILD sits in
+(`${startdir%/packaging/arch}`), with `sha256sums=('SKIP')`, as makepkg
+requires for a VCS source. A clone is of what is committed, so a package is
+always a commit that can be named, and an uncommitted edit never ships by
+accident. A published release would use the tag's tarball instead; the
+comment in the file shows the line. There is no `pkgver()`: makepkg
+rewrites the PKGBUILD's `pkgver=` line in place when one exists, which would
+edit a tracked file on every build. `pkgver` is `Cargo.toml`'s.
+
+**Network.** `prepare()` runs `cargo fetch --locked --target <host>`, the
+one step that may download. `build()` is `cargo build --frozen --release`
+and `check()` is `cargo test --frozen`, both with `CARGO_NET_OFFLINE=true`
+exported, because the suite builds its crash helpers with a nested
+`cargo build --locked --example …` (D26) that `--frozen` on the outer
+command does not reach. `check()` also unsets `RICEPILOT_LIVE_TESTS`, the
+one variable that lets a test run the real `Hyprland` (D56): a package
+build never reaches the session, whatever the builder's environment holds. `RUSTUP_TOOLCHAIN=stable` is exported in each
+function, as Arch's Rust guidelines have it; with the distro `rust` package
+and no rustup nothing reads it.
+
+**Metadata.** `license=('MIT OR Apache-2.0')`, the SPDX expression from
+`Cargo.toml`, which Arch's `license` array accepts as it is. The repository
+has no license *file*; `package()` installs `LICENSE`, `LICENSE-MIT`,
+`LICENSE-APACHE` or `COPYING` if one appears, and adding them is left to the
+author. `depends=('glibc' 'libgcc')`: `readelf -d` on the binary lists
+`libc.so.6` and `libgcc_s.so.1` and nothing else, and `libgcc_s` is in
+`libgcc` since Arch split `gcc-libs` (on an older system, `gcc-libs`).
+`pacman`, `hyprland` and `uwsm` are `optdepends`: each is looked for by
+absolute path at run time, and its absence is reported rather than fatal
+(D52, D53, D55, D58). `package()` installs the binary, `README.md`, and
+`docs/*.md` beside it under `/usr/share/doc/ricepilot/docs/`, so the
+README's relative links resolve and `RECOVERY.md` can be found from a TTY.
+
+**What was validated, and what was not.** `bash -n` and
+`makepkg --printsrcinfo` on the file. makepkg itself was not run to build
+the package: a build reads the user's own makepkg and git configuration,
+and the development rule is to touch nothing of the real home. Instead
+`prepare`, `build`, `check` and `package` were sourced from the file and
+run in order, in a clone under `target/fixtures/`, with makepkg's
+`CFLAGS`/`LDFLAGS`/`LTOFLAGS` and Rust flags taken from `/etc/makepkg.conf`
+(its `lto` option is on): the build and the whole suite pass, and the
+package tree holds the binary, the README and the docs. That run is what
+found D64. Not exercised: makepkg's own source download and extraction,
+`fakeroot`, stripping, and `pacman -U`.

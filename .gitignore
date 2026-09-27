@@ -1,1 +1,8 @@
 /target
+# makepkg's working files, when packaging/arch/PKGBUILD is built in place
+# (D65).
+/packaging/arch/src/
+/packaging/arch/pkg/
+/packaging/arch/ricepilot/
+/packaging/arch/*.pkg.tar*
+/packaging/arch/*.log
