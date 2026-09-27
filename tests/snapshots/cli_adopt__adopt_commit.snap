@@ -38,7 +38,7 @@ your original directory is at:
   <HOME>/.local/state/ricepilot/attic/<TS><HOME>/.config/hypr
 nothing was removed. to undo this, move that directory back yourself:
   ricepilot recover      (only while something is in flight)
-  mv -T <the path above> <HOME>/.config/hypr   after moving the link aside
+  mv -nT <the path above> <HOME>/.config/hypr   after moving the link aside
 
 `ricepilot rollback` does not undo an adopt. it re-applies the previous generation,
 which did not have this destination — so it would displace the new link into the

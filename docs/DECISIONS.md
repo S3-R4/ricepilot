@@ -1493,8 +1493,8 @@ folded into a single `ok:` line.
 Each finding prints its path, one clause saying what is wrong, the rule, the
 observation, and shell lines to run, with `#` comments saying which is which.
 The printed commands are chosen to be safe to paste: dry runs before
-`--commit`, `mv -T x x.set-aside` rather than anything that removes, `diff`
-before either. `adopt` is not suggested for a real directory at an owned
+`--commit`, `mv -nT x x.set-aside` (`-n` and a free name since D70) rather
+than anything that removes, `diff` before either. `adopt` is not suggested for a real directory at an owned
 destination: the profile already declares that path, and adopt would refuse
 the duplicate.
 
@@ -1914,8 +1914,8 @@ removal time:
 1. its destination is ricepilot's link now — the full ownership predicate,
    `observe::shape_via`. In the adopt-then-rollback state (D49) the
    destination is empty and this directory is the documented way back; the
-   entry is kept and the report prints `mv -T <attic path> <dest>`, the way
-   `doctor` does;
+   entry is kept and the report prints `mv -nT <attic path> <dest>` (`-n`
+   since D70), the way `doctor` does;
 2. the copy the adopt made (`Adopt.new_target`) is a real directory lexically
    inside a registered profile's directory, and walking both with `verify`'s
    walk (no `volatile` exclusions — "an app rewrites it" is a reason not to
@@ -2398,3 +2398,45 @@ so neither was added. The pass line now lists what was checked instead of
 "inside a Wayland session that uwsm manages", which is why every relogin
 snapshot that shows a passing session check changed.
 
+## D70 — Printed moves are `mv -nT`, and doctor's set-aside name is one that is free
+
+*M5, red-team #2 finding 4; amends D57.* `doctor` and RECOVERY.md printed
+`mv -T x x.set-aside` to get a thing out of ricepilot's way. `mv -T` is a
+`rename(2)`, and a rename replaces a file or a symlink already at the new
+name without a word. RECOVERY.md's step 5 makes one `.set-aside` per path
+it restores, so a second round of it — or a second `doctor` fix for the
+same path — replaced the first round's link, or, where an installer had
+put a *file* at a managed destination, the user's earlier file.
+
+**Both, not one or the other.**
+
+* **`-n` on every printed move** — doctor's set-aside and its move of an
+  adopted directory back out of the attic, the adopt summary's way back,
+  gc's note on a kept adopt entry, and every `mv` in RECOVERY.md. `-n`
+  never replaces anything, so a move whose name has been taken since the
+  report was printed does nothing. Arch's GNU `mv` (coreutils 9.11 here)
+  does nothing *silently* and exits 0; that is why RECOVERY.md says to
+  check with `ls -ld` afterwards, and why it is safe in doctor's own
+  sequence: the `ricepilot plan` printed after the move still refuses the
+  path it did not free. A version of `mv` that exits non-zero instead is
+  as safe.
+* **A name that is free when the report is made.** `doctor` looks (read
+  only, `lstat`) for `x.set-aside`, then `x.set-aside-2` … `-99`, and
+  prints the first that is not there, so the printed command does its job
+  in the ordinary case instead of quietly not moving. Free now is not free
+  at paste time, which is what `-n` is for.
+
+A unique suffix alone (a timestamp, a random word) was the other option:
+it still replaces whatever happens to have that name, and is harder to type
+from a TTY than `-2`. `mv -n --update=none-fail` would fail loudly, but is
+only in coreutils 9.5 and later.
+
+Not covered: `rescue.sh` keeps its own `mv -T`. There it is the atomic
+replacement of the staging link over the link at the destination — a link
+over a link is the point — and a directory there makes it fail, which
+RECOVERY.md documents. But a *regular file* at the destination (an
+installer that wrote one where ricepilot's link was) is replaced by it, and
+if something reappears at a displaced destination between two runs of the
+same script, the second run's move into `rescue-NNNN` replaces what the
+first parked there. Both are from reading the script, not run. Changing the script changes every script's bytes, and so what
+`doctor` and `--relogin` call stale; it is left for its own change.

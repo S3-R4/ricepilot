@@ -21,7 +21,7 @@ PROBLEM 1 of 1: <HOME>/.config/foot
 
   run:
     # set it aside (nothing is lost), then let ricepilot link it again
-    mv -T <HOME>/.config/foot <HOME>/.config/foot.set-aside
+    mv -nT <HOME>/.config/foot <HOME>/.config/foot.set-aside
     ricepilot plan new
     ricepilot switch new --commit
 

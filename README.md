@@ -220,7 +220,7 @@ What ricepilot does not do, or does not know, and what that costs you.
   directory into the attic. Rolling back re-applies the generation before the
   adopt, which had no link at that path, so the link is moved to the attic
   too and the path is left **empty** — your directory is not put back.
-  `doctor` reports this and prints the `mv -T` that returns it;
+  `doctor` reports this and prints the `mv -nT` that returns it;
   [RECOVERY.md](docs/RECOVERY.md#6-put-something-back-from-the-attic-by-hand)
   says how.
 - **The verify-config leaves scratch copies under

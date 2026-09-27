@@ -41,7 +41,7 @@ PROBLEM 2 of 4: <HOME>/.config/foot
     # what is in it, against the tree the link pointed into
     diff -r <HOME>/rice/new/foot <HOME>/.config/foot
     # set it aside (nothing is lost), then put the link back
-    mv -T <HOME>/.config/foot <HOME>/.config/foot.set-aside
+    mv -nT <HOME>/.config/foot <HOME>/.config/foot.set-aside
     ricepilot plan new
     ricepilot switch new --commit
 

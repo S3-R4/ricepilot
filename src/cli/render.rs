@@ -1054,7 +1054,7 @@ pub fn adopt_done(
     );
     let _ = writeln!(
         s,
-        "  mv -T <the path above> {}   after moving the link aside",
+        "  mv -nT <the path above> {}   after moving the link aside",
         a.dest.display()
     );
     let _ = writeln!(s);

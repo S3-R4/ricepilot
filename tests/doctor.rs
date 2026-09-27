@@ -210,6 +210,28 @@ fn an_owned_link_that_points_elsewhere() {
     insta::assert_snapshot!(r.stdout);
 }
 
+/// A `.set-aside` left by an earlier round (RECOVERY.md step 5 makes one per
+/// path) is not overwritten by the next: the printed name skips past it, and
+/// the move is `mv -nT` in case the name is taken again by paste time (D70).
+#[test]
+fn a_taken_set_aside_name_is_skipped_and_the_move_never_replaces() {
+    let m = machine("taken-aside");
+    m.f.link(".config/foot", &m.old_root.join("foot"));
+    m.f.link(".config/foot.set-aside", Path::new("/an/earlier/round"));
+    let r = doctor(&m.f);
+    unhealthy(&r);
+    let line = r
+        .stdout
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("mv "))
+        .expect("a move is printed");
+    assert_eq!(
+        line,
+        "mv -nT <HOME>/.config/foot <HOME>/.config/foot.set-aside-2"
+    );
+}
+
 #[test]
 fn an_owned_link_replaced_by_a_lookalike() {
     let m = machine("lookalike");

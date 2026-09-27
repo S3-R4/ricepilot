@@ -15,7 +15,11 @@ Three things are true however bad it looks:
   `gc --commit` while recovering.**
 - **Nothing here needs `rm`.** Every command below moves or links. If you
   find yourself about to delete something, move it aside instead
-  (`mv -T <path> <path>.set-aside`).
+  (`mv -nT <path> <path>.set-aside`).
+- **Every `mv` here has `-n`: it never replaces anything.** If the name it
+  moves to is already taken, it does nothing, and says nothing. Check with
+  `ls -ld <path> <path>.set-aside` afterwards; if the old one is still there,
+  pick another name (`<path>.set-aside-2`). `doctor` picks a free one for you.
 - **Every ricepilot command that can change something is a dry run unless
   you add `--commit`.** Run it without first, read what it would do, then add
   `--commit`.
@@ -193,8 +197,8 @@ either way: **read the output.**
   by hand, move the directory aside and the link into place:
 
   ```sh
-  mv -T ~/.config/foot ~/.config/foot.set-aside
-  mv -T ~/.config/foot.rp-rescue ~/.config/foot
+  mv -nT ~/.config/foot ~/.config/foot.set-aside
+  mv -nT ~/.config/foot.rp-rescue ~/.config/foot
   ```
 
   (`foot` is an example; use the path from the `FAILED` line.) Until then,
@@ -216,7 +220,7 @@ either way: **read the output.**
   are leaving. Move each one aside yourself if it is part of what broke:
 
   ```sh
-  mv -T ~/.config/btop ~/.config/btop.set-aside
+  mv -nT ~/.config/btop ~/.config/btop.set-aside
   ```
 
 - **After an interrupted operation, use [step 3](#3-finish-an-interrupted-operation).**
@@ -229,7 +233,7 @@ and things work, bring the records back in line — move each restored link
 aside, then let ricepilot make it again:
 
 ```sh
-mv -T ~/.config/foot ~/.config/foot.set-aside    # once per path doctor names
+mv -nT ~/.config/foot ~/.config/foot.set-aside   # once per path doctor names
 ricepilot rollback                               # the plan: it should create each link
 ricepilot rollback --commit
 ricepilot doctor                                 # expect no problems
@@ -239,7 +243,10 @@ The `rollback` here re-applies the same generation the script restored, so
 it creates the same links, this time recorded; a link you set aside because
 only the newer profile had it is reported as no longer managed, and nothing
 is put back there. The `.set-aside` links are ordinary symlinks; they are
-harmless, and you can leave them.
+harmless, and you can leave them. A second round of this needs a second
+name — `~/.config/foot.set-aside` is taken by the first — which `doctor`
+prints as `~/.config/foot.set-aside-2`; the `-n` makes a reused name a move
+that does not happen rather than one that replaces the first.
 
 ## 6. Put something back from the attic by hand
 
@@ -262,7 +269,7 @@ it back, D49), or one `rescue.sh` displaced.
 To find it, any of these (all read-only):
 
 ```sh
-ricepilot doctor     # in the adopt-then-rollback case, prints the exact mv -T
+ricepilot doctor     # in the adopt-then-rollback case, prints the exact mv -nT
 ricepilot gc         # without --commit: lists every entry, what it holds, and why it is kept
 ls ~/.local/state/ricepilot/attic/
 ls -la ~/.local/state/ricepilot/attic/*/home/*/.config/
@@ -272,13 +279,14 @@ To put it back:
 
 ```sh
 ls -ld ~/.config/hypr                   # must say "No such file or directory"
-mv -T ~/.local/state/ricepilot/attic/<id>/home/you/.config/hypr ~/.config/hypr
+mv -nT ~/.local/state/ricepilot/attic/<id>/home/you/.config/hypr ~/.config/hypr
 ```
 
 If something is already at the destination, move that aside first
-(`mv -T ~/.config/hypr ~/.config/hypr.set-aside`) — never remove it. `mv -T`
-refuses to put a directory over a link or over a directory that is not
-empty, so it will not overwrite anything by accident. Keep both on the same
+(`mv -nT ~/.config/hypr ~/.config/hypr.set-aside`) — never remove it. Plain
+`mv -T` would put a file or a link over a file or a link that is already
+there, and a directory over an empty one; `-n` stops that, so a mistyped or
+reused name moves nothing instead of replacing something. Keep both on the same
 filesystem (everything under your home is): across filesystems `mv` copies
 and deletes instead of renaming.
 
@@ -342,7 +350,7 @@ Tried, in the test suite, on throwaway trees under `target/fixtures/`:
 `recover` after a crash at every step of a switch and an adopt; `rollback`;
 `rescue.sh` run by a real `/bin/sh`, including a path it cannot restore;
 `doctor`'s report of each problem above, including the adopt-then-rollback
-state and the `mv -T` it prints. Run by hand in the same kind of sandbox
+state and the `mv -nT` it prints. Run by hand in the same kind of sandbox
 while this document was written: step 5's whole sequence — `rescue.sh`,
 setting the restored links aside, `rollback --commit`, a clean `doctor` —
 with and without a link only the newer profile had, and `rescue.sh`'s

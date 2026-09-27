@@ -22,7 +22,7 @@ PROBLEM 1 of 1: <HOME>/.config/hypr
 
   run:
     # your own directory, back where it was
-    mv -T <HOME>/.local/state/ricepilot/attic/<TS><HOME>/.config/hypr <HOME>/.config/hypr
+    mv -nT <HOME>/.local/state/ricepilot/attic/<TS><HOME>/.config/hypr <HOME>/.config/hypr
     # or, instead, link the copy in profile `mine` again
     ricepilot switch mine --commit
 

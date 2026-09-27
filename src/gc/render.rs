@@ -277,7 +277,7 @@ fn keep_line(k: &Keep, home: &Path) -> String {
             match why {
                 NotHeld::DestNotOurs { now } if now == "absent" => format!(
                     "{head}, and nothing is at {d} now: this is the way back to it, which \
-                     rollback does not take (D49). to put it back: mv -T {} {}",
+                     rollback does not take (D49). to put it back: mv -nT {} {}",
                     at(p),
                     dest.display()
                 ),

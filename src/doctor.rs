@@ -204,12 +204,27 @@ fn tilde(p: &Path, home: &Path) -> String {
     }
 }
 
-/// `<dest>.set-aside`: the name the printed commands move a thing to. A
-/// sibling, so the move stays on one filesystem and inside one directory.
-fn set_aside(dest: &Path) -> PathBuf {
-    let mut s = dest.as_os_str().to_os_string();
-    s.push(".set-aside");
-    PathBuf::from(s)
+/// The name the printed commands move a thing to: `<dest>.set-aside`, or
+/// `<dest>.set-aside-2`, `-3`, … when that is taken now. A sibling, so the
+/// move stays on one filesystem and inside one directory.
+///
+/// Free when this report was made is not free when the command is pasted,
+/// so the command is always `mv -nT` as well (D70): if the name has been
+/// taken by then, nothing moves and nothing is replaced, and the `plan`
+/// printed after it still refuses the occupied path.
+fn set_aside(look: &dyn Look, dest: &Path) -> PathBuf {
+    let named = |n: u32| {
+        let mut s = dest.as_os_str().to_os_string();
+        s.push(".set-aside");
+        if n > 1 {
+            s.push(format!("-{n}"));
+        }
+        PathBuf::from(s)
+    };
+    (1..=99)
+        .map(named)
+        .find(|q| matches!(look.lstat_or_absent(q), Ok(None)))
+        .unwrap_or_else(|| named(1))
 }
 
 fn human(bytes: u64) -> String {
@@ -488,7 +503,7 @@ fn owned_links(
         let aside = |why: &str| {
             let mut run = vec![
                 format!("# {why}"),
-                format!("mv -T {} {}", sh(dest), sh(&set_aside(dest))),
+                format!("mv -nT {} {}", sh(dest), sh(&set_aside(look, dest))),
             ];
             relink(&mut run);
             run
@@ -872,7 +887,7 @@ fn adopted_then_emptied(
                 a.original.display()
             ));
             run.push("# your own directory, back where it was".into());
-            run.push(format!("mv -T {} {}", sh(&a.original), sh(&dest)));
+            run.push(format!("mv -nT {} {}", sh(&a.original), sh(&dest)));
             if relink {
                 detail.push(format!(
                     "moved back, it is a real directory again. profile `{}` still declares\n\
