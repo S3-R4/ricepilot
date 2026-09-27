@@ -243,6 +243,31 @@ impl Fixture {
         p
     }
 
+    /// Bind a Unix socket at `rel`, replacing whatever a previous run left
+    /// there, and return its path. The listener is dropped at once; the
+    /// socket file stays, which is all an `lstat` sees.
+    ///
+    /// It is bound through `/proc/self/fd/<fd>/<name>`, `<fd>` being the
+    /// parent directory held open, rather than through its own path (D64).
+    /// `sun_path` holds 107 bytes, and a fixture below a deep checkout —
+    /// makepkg's `packaging/arch/src/ricepilot/target/fixtures/…` — is longer
+    /// than that, so `bind` would fail with "path must be shorter than
+    /// SUN_LEN" for a reason that has nothing to do with the test. The kernel
+    /// resolves the `/proc` link to the directory itself, so the socket is
+    /// made exactly where the long path says.
+    pub fn socket(&self, rel: &str) -> PathBuf {
+        use std::os::fd::AsRawFd as _;
+        let p = self.path(rel);
+        let parent = p.parent().unwrap();
+        std::fs::create_dir_all(parent).unwrap();
+        let _ = std::fs::remove_file(&p);
+        let dir = std::fs::File::open(parent).unwrap();
+        let short = PathBuf::from(format!("/proc/self/fd/{}", dir.as_raw_fd()))
+            .join(p.file_name().unwrap());
+        std::os::unix::net::UnixListener::bind(short).unwrap();
+        p
+    }
+
     /// Ensure nothing exists at `rel`, so the "absent" shape is really absent.
     pub fn clear(&self, rel: &str) {
         let p = self.path(rel);

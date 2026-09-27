@@ -2100,3 +2100,30 @@ both in `src/gc/remove.rs`, no other removal call is spelled in `src/`, and
 
 The greps stay textual (D3) and so stay blind to aliasing across files; the
 clippy entry is what covers a removal reached through a re-export.
+
+## D64 — Test sockets are bound through `/proc/self/fd`, so the suite passes from a deep checkout
+
+*M5, found while writing the PKGBUILD.* Four tests make a Unix socket in a
+fixture — the uncopyable object `capture`, `adopt` and the survey must name,
+and the Wayland socket `--relogin`'s session check looks for — and each
+called `UnixListener::bind` on the fixture path. `sun_path` holds 107
+bytes. From this repository's usual place the longest of those paths is 89,
+but makepkg builds a clone at `packaging/arch/src/ricepilot/`, and there the
+same paths run to 113–119: `check()` failed with "path must be shorter than
+SUN_LEN", on a build that was otherwise green. Any checkout about 20
+characters deeper than this one would have failed the same way.
+
+The fixture root cannot be moved somewhere shorter: it is
+`<CARGO_MANIFEST_DIR>/target/fixtures` by construction (D5, D56), and `/tmp`
+is ruled out for the reasons D5 gives. So the harness binds differently:
+`Fixture::socket(rel)` holds the parent directory open and binds
+`/proc/self/fd/<fd>/<name>`, which the kernel resolves through the
+descriptor to the directory itself. The socket is created at exactly the
+long path; only the name handed to `bind` is short. It is Linux-only, as
+ricepilot is. The four call sites use it, and nothing in `src/` binds a
+socket, so the change is confined to `tests/`.
+
+Proved by running the PKGBUILD's `prepare`, `build`, `check` and `package`
+by hand on a clone under `target/fixtures/`, a path longer than makepkg's:
+the socket test that failed there passes, and so does the rest of the suite
+(382 tests).

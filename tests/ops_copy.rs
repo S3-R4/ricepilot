@@ -184,8 +184,7 @@ fn copying_a_tree_into_itself_is_refused() {
 #[test]
 fn a_socket_is_refused_by_name_rather_than_silently_skipped() {
     let (f, src) = tree("copy_socket");
-    let sock = src.join("app.sock");
-    std::os::unix::net::UnixListener::bind(&sock).unwrap();
+    f.socket("rice/src/app.sock");
 
     let dst = f.path("rice/dst");
     let e = mutate::copy_tree(&src, &dst).unwrap_err();

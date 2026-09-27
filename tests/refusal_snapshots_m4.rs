@@ -77,7 +77,7 @@ fn every_refusal_m4_added() {
                 .unwrap_err()
         )
     );
-    std::os::unix::net::UnixListener::bind(f.path("rice/src/app.sock")).unwrap();
+    f.socket("rice/src/app.sock");
     let _ = write!(
         s,
         "{}",

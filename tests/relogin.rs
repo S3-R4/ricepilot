@@ -59,12 +59,9 @@ fn session_env(f: &Fixture) -> Vec<(String, String)> {
     ]
 }
 
-/// A Unix socket at `.run/<name>`. The listener is dropped at once; the
-/// socket file stays, which is all an `lstat` sees.
+/// A Unix socket at `.run/<name>`, as a compositor leaves one.
 fn wayland_socket(f: &Fixture, name: &str) {
-    let p = f.path(&format!(".run/{name}"));
-    let _ = std::fs::remove_file(&p);
-    std::os::unix::net::UnixListener::bind(&p).unwrap();
+    f.socket(&format!(".run/{name}"));
 }
 
 /// What systemd's user manager keeps for a running unit:

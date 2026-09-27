@@ -71,7 +71,7 @@ fn counts_cover_the_whole_tree_and_the_root_directory() {
 #[test]
 fn a_socket_is_reported_as_uncopyable_rather_than_counted_as_a_file() {
     let f = tree("socket");
-    std::os::unix::net::UnixListener::bind(f.path("rice/app.sock")).unwrap();
+    f.socket("rice/app.sock");
     let s = survey::survey(&f.path("rice")).unwrap();
     assert_eq!(s.uncopyable, vec!["app.sock".to_string()]);
     assert_eq!(s.files, 3);
