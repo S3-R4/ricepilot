@@ -42,7 +42,8 @@ pub enum Command {
         #[arg(long)]
         commit: bool,
     },
-    /// Show the current generation, owned links and any drift.
+    /// Show the current generation and the links ricepilot owns. For drift,
+    /// see `diff` and `verify`.
     Status,
     /// Read-only health report; prints commands, never runs them.
     Doctor,

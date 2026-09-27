@@ -18,8 +18,12 @@ directory below it and nothing else — *not*
 `/tmp`, which is a tmpfs with a different `st_dev` and would silently change
 what `rename(2)` does).
 
-The only exception is the supervised acceptance run at M5, with the user
-present, through ricepilot's own dry-run → `--commit` path.
+The brief allowed one exception: the supervised acceptance run at M5, with
+the user present, through ricepilot's own dry-run → `--commit` path. The
+user has since narrowed that too: the acceptance run happens in a
+disposable sandbox — a container, a VM or a throwaway user, holding a fake
+shaped like the real rice — and never on the real `$HOME`, the live
+session, or a machine that has to be restarted or logged out for it.
 
 *Enforced by*: the test sandbox (D56). Every test process and every process
 it starts carries `RICEPILOT_SANDBOX=<repo>/target/fixtures`; inside it
