@@ -17,7 +17,7 @@ PROBLEM 1 of 1: <HOME>/.local/share/ricepilot/profiles/new/profile.toml
   if that is not what you meant, set src = "foot" again.
 
   run:
-    # see what the next switch would do; this changes nothing
+    # see what the next switch would do; this changes no link
     ricepilot plan new
 
 not checked, or worth knowing:

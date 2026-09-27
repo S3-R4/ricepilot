@@ -656,7 +656,7 @@ fn owned_links(
                             ),
                         ],
                         run: vec![
-                            "# what going back a generation would do; this changes nothing".into(),
+                            "# what going back a generation would do; this changes no link".into(),
                             "ricepilot rollback".into(),
                         ],
                     });
@@ -701,7 +701,7 @@ fn manifests_agree_with_ledger(
             .map(|s| s.display().to_string())
             .unwrap_or_else(|_| "<the directory inside the profile>".into());
         let check = vec![
-            "# see what the next switch would do; this changes nothing".to_string(),
+            "# see what the next switch would do; this changes no link".to_string(),
             format!("ricepilot plan {}", q.name),
         ];
         let owned = format!(

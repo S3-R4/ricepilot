@@ -132,7 +132,10 @@ Every command that can change anything prints its complete plan and stops,
 unless given `--commit`. The plan printed by a dry run is the same value
 `--commit` executes: the planner is a pure function with no IO. A refusal
 names the path and the rule, lists every reason rather than the first, exits
-non-zero, and changes nothing.
+non-zero, and changes no link, profile or config. A dry run, or a refusal,
+of a `plan`, `switch` or `rollback` into a profile with a `hyprland.conf` is
+not quite without effect: it leaves a verify-config scratch copy in
+ricepilot's own state (below).
 
 Some commands ask as well, and there is no flag that skips the asking — no
 `--yes`, no "all" (D47): `init` asks about each link it would record, `adopt`

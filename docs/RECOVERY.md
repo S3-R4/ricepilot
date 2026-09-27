@@ -6,7 +6,7 @@ session. Read it top to bottom and stop at the first step that fixes things:
 the steps are ordered from the ones that change nothing to the ones that
 change the most.
 
-Three things are true however bad it looks:
+Four things are true however bad it looks:
 
 - **A switch deletes nothing.** Nor does a rollback, an adopt or a
   recover: ricepilot moves what it displaces into
@@ -142,9 +142,19 @@ Every completed switch and rollback is a numbered *generation*.
 checked, journalled path a switch takes.
 
 ```sh
-ricepilot rollback           # the plan; changes nothing
+ricepilot rollback           # the plan; changes no link and no config
 ricepilot rollback --commit
 ```
+
+Without `--commit` the rollback moves, links and removes nothing, but it is
+not entirely without effect. If the generation it would go back to ships a
+`hyprland.conf`, it writes a copy of that config, `exec` lines stripped,
+under `~/.local/state/ricepilot/verify/`, and runs `Hyprland --verify-config`
+on the copy — a separate Hyprland process with a scratch home, an empty
+runtime directory and none of your session's variables, so it cannot reach
+the running session (D55). The copy is kept until `ricepilot gc` removes
+it. (`recover` without `--commit` does not
+do this.)
 
 Then log in again ([step 7](#7-log-in-again)).
 
