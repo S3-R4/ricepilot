@@ -251,11 +251,19 @@ What ricepilot does not do, or does not know, and what that costs you.
   completed in the same process, and only when all six checks pass: the new generation is
   current, the journal is retired, `rescue.sh` is the script for the previous
   generation and parses, every link is what the plan said and what the ledger
-  recorded, the lock is still held, and the process is inside a session uwsm
-  manages. It asks y/N, defaulting to no, then runs the checks again. Outside
-  a uwsm session — a TTY, ssh — it declines. It never runs `hyprctl dispatch
-  exit` and never signals Hyprland. That `uwsm stop` with this environment
-  really ends a session has not been tested; that is the acceptance run's job.
+  recorded, the lock is still held, and the session looks like uwsm's. That
+  last check reads, and only reads: `WAYLAND_DISPLAY` names something in
+  `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS` is set, systemd records
+  exactly one `wayland-wm@….service` running, no `SSH_CONNECTION`,
+  `SSH_CLIENT`, `SSH_TTY`, `TMUX`, `STY` or `ZELLIJ` is set, and the
+  controlling terminal is a pseudo-terminal or none — not a virtual console
+  (D58, D69). It asks y/N, defaulting to no, then runs the checks again. So
+  from a TTY, over ssh or inside tmux or screen it declines — as far as those
+  variables and the terminal show it: they are evidence, not proof, and a
+  process started with them cleared would pass. It never runs `hyprctl
+  dispatch exit` and never signals Hyprland. That `uwsm stop` with this
+  environment really ends a session has not been tested; that is the
+  acceptance run's job.
 - **v1 manages directory links only.** A manifest path with
   `kind = "file-copy"` or `activation = "live"` exits 3; a destination that
   is a real file is refused. File links that already exist (caelestia's

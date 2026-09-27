@@ -9,7 +9,8 @@ expression: "tidy(&relogin::cleared_text(&cleared), &m.f)"
   ok  rescue   <HOME>/.local/state/ricepilot/rescue.sh restores generation 0000 and passes `sh -n`
   ok  links    3 link(s) are exactly what the plan said and what the ledger recorded
   ok  lock     this ricepilot holds <HOME>/.run/ricepilot.lock, and it is still the file at that path
-  ok  session  inside a Wayland session (wayland-1) that uwsm manages: wayland-wm@hyprland.desktop.service is running
+  ok  session  WAYLAND_DISPLAY=wayland-1 is there in XDG_RUNTIME_DIR, uwsm's wayland-wm@hyprland.desktop.service is running,
+               nothing says ssh, tmux or screen, and the controlling terminal was not looked at (test sandbox)
 
 `uwsm stop` ends this session the clean way: every window closes, and anything unsaved
 in them is lost. the login screen comes back, and the next login starts generation 0001.

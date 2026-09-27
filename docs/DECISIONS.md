@@ -1582,10 +1582,14 @@ and a refusal lists all six, each `ok` or `NO`, not the first to fail:
    systemd's user manager and uwsm 0.26.5 on the target machine). A listing,
    two `lstat`s and four variables. Not `uwsm check is-active`: that is a
    second uwsm subprocess, over D-Bus, for a question the filesystem answers
-   read-only, and the allowlist is not widened to ask it.
+   read-only, and the allowlist is not widened to ask it. Since D69 it also
+   declines when ssh's or a terminal multiplexer's variables are set, or the
+   controlling terminal is not a pseudo-terminal.
 
 Outside a uwsm session it declines rather than asks. From a TTY, ssh or a
-timer, `uwsm stop` would end a session the user is not looking at; in a
+timer, `uwsm stop` would end a session the user is not looking at — which
+the checks above see only as far as the environment and the controlling
+terminal show it; D69 says how far that is. In a
 session uwsm did not start it has nothing to stop; and the only other
 logouts — `hyprctl dispatch exit`, a signal to Hyprland — are the ones
 AGENT_PROMPT §1 rules out, and nothing on the allowlist can do either.
@@ -2344,4 +2348,53 @@ Not covered: the commands `doctor` and RECOVERY.md print are not a script,
 and a path from the live filesystem with a newline in it is printed there
 inside single quotes, across two lines. Copied whole it is one argument;
 it is not escaped.
+
+## D69 — The session check declines ssh, tmux/screen/zellij and a virtual console, and says it is evidence, not proof
+
+*M5, red-team #2 finding 3; amends D58's sixth check.* D58's session check
+reads four variables, a socket and systemd's unit records. All of them are
+inherited: a tmux or screen pane has the environment of the graphical
+session its server was started in, so a user who attached to it from a TTY
+or over ssh passed every check — and `uwsm stop` would have ended a
+session on a screen they are not looking at. README and D58 said "inside a
+session uwsm manages" and "from a TTY or ssh it declines", which claimed
+more than was checked.
+
+**What is added, all read-only and inside the existing surface.**
+
+* **ssh:** any of `SSH_CONNECTION`, `SSH_CLIENT`, `SSH_TTY` set declines.
+  sshd sets them in the session it starts.
+* **Multiplexers:** any of `TMUX`, `STY` (screen), `ZELLIJ` set declines,
+  whatever else passes. Declining every pane rather than trying to find the
+  attached client's terminal is the honest option: tmux knows which client
+  is attached, but asking it is a subprocess not on the allowlist, and a
+  pane has nothing of its own that says. The message says to run it from a
+  terminal in the session, outside the multiplexer.
+* **The controlling terminal:** `tty_nr` from `/proc/<pid>/stat` (by pid,
+  not `/proc/self`, which is a symlink `ops::read` refuses to cross, D9),
+  decoded by the pure `relogin::terminal_of_stat`. A pseudo-terminal (major
+  136–143: a terminal emulator — or ssh or a multiplexer, which the
+  variables catch) or no controlling terminal at all (a keybind, a launcher;
+  the y/N is then read line-wise from whatever stdin is, and end of input
+  is a no, D47) pass. Anything
+  else declines, named: a virtual console `/dev/ttyN`, a serial line, the
+  system console, an unknown device. That catches the TTY login whose user
+  imported the graphical session's environment by hand. Inside the test
+  sandbox the terminal is not read — it would be the test runner's, nothing
+  to do with the fixture's session (D56) — and the check says "not looked
+  at (test sandbox)"; `ops::exec` refuses `uwsm` there regardless. The
+  decoding and each verdict are tested from facts, and the parser is run
+  on the test process's own stat file for its shape.
+
+**What is now claimed, and what is not.** README, DESIGN §6 and D58 now say
+what is read. It is evidence, not proof: a process started with those
+variables cleared, from a pseudo-terminal that is not the session's (a
+nested terminal emulator, `script`, `systemd-run --user --pty`), still
+passes, as does D58's already-recorded nested compositor. Stronger proof —
+the process's cgroup against the compositor unit's, or logind's view of
+the session — would rest on systemd's cgroup layout or need a D-Bus
+subprocess; neither was verifiable here without reading the live session,
+so neither was added. The pass line now lists what was checked instead of
+"inside a Wayland session that uwsm manages", which is why every relogin
+snapshot that shows a passing session check changed.
 

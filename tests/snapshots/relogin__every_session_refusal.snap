@@ -40,3 +40,29 @@ expression: s
 --- two uwsm units
   NO  session  more than one uwsm compositor unit is running: wayland-wm@hyprland.desktop.service, wayland-wm@sway.desktop.service.
                `uwsm stop` would stop one of them, and ricepilot will not guess which one is this session
+
+--- over ssh
+  NO  session  the environment has SSH_CONNECTION, SSH_TTY: this ricepilot was started over ssh, and `uwsm stop`
+               would end a graphical session on another screen, not the one you are looking at
+
+--- over ssh, SSH_CLIENT alone
+  NO  session  the environment has SSH_CLIENT: this ricepilot was started over ssh, and `uwsm stop`
+               would end a graphical session on another screen, not the one you are looking at
+
+--- inside tmux: attached from who knows where
+  NO  session  the environment has TMUX: this ricepilot runs inside tmux, screen or zellij, whose
+               pane has the environment of the session its server started in — but you may be
+               attached from a TTY or over ssh, and nothing a pane can read says which. run it
+               from a terminal in the session itself, outside the multiplexer
+
+--- inside screen
+  NO  session  the environment has STY: this ricepilot runs inside tmux, screen or zellij, whose
+               pane has the environment of the session its server started in — but you may be
+               attached from a TTY or over ssh, and nothing a pane can read says which. run it
+               from a terminal in the session itself, outside the multiplexer
+
+--- inside zellij
+  NO  session  the environment has ZELLIJ: this ricepilot runs inside tmux, screen or zellij, whose
+               pane has the environment of the session its server started in — but you may be
+               attached from a TTY or over ssh, and nothing a pane can read says which. run it
+               from a terminal in the session itself, outside the multiplexer

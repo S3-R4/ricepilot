@@ -1,0 +1,31 @@
+---
+source: tests/relogin.rs
+expression: s
+---
+--- no controlling terminal
+  ok  session  WAYLAND_DISPLAY=wayland-1 is there in XDG_RUNTIME_DIR, uwsm's wayland-wm@hyprland.desktop.service is running,
+               nothing says ssh, tmux or screen, and there is no controlling terminal
+
+--- a pseudo-terminal
+  ok  session  WAYLAND_DISPLAY=wayland-1 is there in XDG_RUNTIME_DIR, uwsm's wayland-wm@hyprland.desktop.service is running,
+               nothing says ssh, tmux or screen, and the controlling terminal is a pseudo-terminal
+
+--- /dev/tty2
+  NO  session  the controlling terminal is /dev/tty2, a virtual console, not a terminal emulator's pseudo-terminal:
+               `uwsm stop` would end a graphical session you are not looking at
+
+--- /dev/ttyS0
+  NO  session  the controlling terminal is /dev/ttyS0, a serial line, not a terminal emulator's pseudo-terminal:
+               `uwsm stop` would end a graphical session you are not looking at
+
+--- /dev/console
+  NO  session  the controlling terminal is /dev/console, not a terminal emulator's pseudo-terminal:
+               `uwsm stop` would end a graphical session you are not looking at
+
+--- some other device
+  NO  session  the controlling terminal is the terminal device 188:0, not a terminal emulator's pseudo-terminal:
+               `uwsm stop` would end a graphical session you are not looking at
+
+--- not looked at: the test sandbox
+  ok  session  WAYLAND_DISPLAY=wayland-1 is there in XDG_RUNTIME_DIR, uwsm's wayland-wm@hyprland.desktop.service is running,
+               nothing says ssh, tmux or screen, and the controlling terminal was not looked at (test sandbox)

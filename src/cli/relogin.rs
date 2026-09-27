@@ -177,6 +177,56 @@ pub struct SessionFacts {
     /// The uwsm compositor units systemd records as running, by name. `None`
     /// when `$XDG_RUNTIME_DIR` could not be used, so nothing was looked at.
     pub units: Option<Read<Vec<String>>>,
+    /// Which of [`REMOTE_VARS`] are set: this process was started over ssh.
+    pub remote: Vec<&'static str>,
+    /// Which of [`MULTIPLEXER_VARS`] are set: this process runs in a
+    /// terminal multiplexer, whose client may be attached from anywhere.
+    pub multiplexer: Vec<&'static str>,
+    /// This process's controlling terminal, from `/proc/<pid>/stat`. `None`
+    /// inside the test sandbox, where it is not looked at (D56, D69).
+    pub terminal: Option<Read<Terminal>>,
+}
+
+/// Variables ssh sets in the session it starts. Any one set declines (D69).
+pub const REMOTE_VARS: &[&str] = &["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"];
+
+/// Variables tmux, screen and zellij set in every pane. Any one set declines:
+/// a pane inherits the environment of the session its server started in, but
+/// its client — the screen the user is looking at — may be a TTY or ssh, and
+/// nothing a pane can read says which (D69).
+pub const MULTIPLEXER_VARS: &[&str] = &["TMUX", "STY", "ZELLIJ"];
+
+/// What a process's controlling terminal is, by device number.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Terminal {
+    /// No controlling terminal: started from a keybind or a launcher.
+    None,
+    /// A pseudo-terminal (`/dev/pts/N`, major 136–143): a terminal emulator
+    /// — or ssh, or a multiplexer, which the variables above catch.
+    Pty,
+    /// Anything else, named: a virtual console (`/dev/ttyN`), a serial line,
+    /// the system console.
+    Other(String),
+}
+
+/// The controlling terminal named by `/proc/<pid>/stat`'s `tty_nr` field (the
+/// fifth after the command name's closing parenthesis), or `None` if the text
+/// is not that file's shape. Pure.
+pub fn terminal_of_stat(stat: &str) -> Option<Terminal> {
+    let after = &stat[stat.rfind(')')? + 1..];
+    let tty_nr: u64 = after.split_whitespace().nth(4)?.parse().ok()?;
+    if tty_nr == 0 {
+        return Some(Terminal::None);
+    }
+    let major = (tty_nr >> 8) & 0xfff;
+    let minor = (tty_nr & 0xff) | ((tty_nr >> 12) & 0xfff00);
+    Some(match (major, minor) {
+        (136..=143, _) => Terminal::Pty,
+        (4, m) if m < 64 => Terminal::Other(format!("/dev/tty{m}, a virtual console")),
+        (4, m) => Terminal::Other(format!("/dev/ttyS{}, a serial line", m - 64)),
+        (5, 1) => Terminal::Other("/dev/console".into()),
+        (ma, mi) => Terminal::Other(format!("the terminal device {ma}:{mi}")),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -364,6 +414,18 @@ fn gather_session(get: Env) -> SessionFacts {
             Err(e) => Err(said(&e)),
         }
     });
+    let set = |names: &[&'static str]| -> Vec<&'static str> {
+        names.iter().copied().filter(|n| get(n).is_some()).collect()
+    };
+    // Inside the test sandbox this process's terminal is the test runner's,
+    // which is nothing to do with the fixture's session (D56).
+    let terminal = sandbox.is_none().then(|| {
+        let stat = PathBuf::from(format!("/proc/{}/stat", std::process::id()));
+        read::slurp(&stat).map_err(|e| said(&e)).and_then(|text| {
+            terminal_of_stat(&text)
+                .ok_or_else(|| format!("{} is not in the shape expected", stat.display()))
+        })
+    });
     SessionFacts {
         sandbox,
         runtime,
@@ -371,6 +433,9 @@ fn gather_session(get: Env) -> SessionFacts {
         socket,
         bus,
         units,
+        remote: set(REMOTE_VARS),
+        multiplexer: set(MULTIPLEXER_VARS),
+        terminal,
     }
 }
 
@@ -418,7 +483,10 @@ fn fail(what: &'static str, text: String) -> Check {
 ///   source, or nothing where the plan retired one), and the ledger's row
 ///   matches the link's target and `(dev, ino)`;
 /// * `lock` — this process holds the lock, on the file at the lock's path;
-/// * `session` — the process is inside a Wayland session that uwsm manages.
+/// * `session` — what the environment and `$XDG_RUNTIME_DIR` say is a
+///   session uwsm runs, reached neither over ssh nor through a multiplexer,
+///   from a terminal emulator or none (D58, D69). What that does and does not
+///   prove is in D69.
 pub fn decide(f: &Facts) -> Vec<Check> {
     vec![
         decide_switch(f),
@@ -653,6 +721,33 @@ fn decide_session(s: &SessionFacts) -> Check {
                 .to_string(),
         );
     }
+    if !s.remote.is_empty() {
+        wrong.push(format!(
+            "the environment has {}: this ricepilot was started over ssh, and `uwsm stop`\n\
+             would end a graphical session on another screen, not the one you are looking at",
+            s.remote.join(", ")
+        ));
+    }
+    if !s.multiplexer.is_empty() {
+        wrong.push(format!(
+            "the environment has {}: this ricepilot runs inside tmux, screen or zellij, whose\n\
+             pane has the environment of the session its server started in — but you may be\n\
+             attached from a TTY or over ssh, and nothing a pane can read says which. run it\n\
+             from a terminal in the session itself, outside the multiplexer",
+            s.multiplexer.join(", ")
+        ));
+    }
+    match &s.terminal {
+        None | Some(Ok(Terminal::None | Terminal::Pty)) => {}
+        Some(Ok(Terminal::Other(what))) => wrong.push(format!(
+            "the controlling terminal is {what}, not a terminal emulator's pseudo-terminal:\n\
+             `uwsm stop` would end a graphical session you are not looking at"
+        )),
+        Some(Err(e)) => wrong.push(format!(
+            "the controlling terminal could not be read ({e}), and it is how ricepilot tells\n\
+             a terminal in the session from a virtual console"
+        )),
+    }
     let mut unit = None;
     match &s.units {
         None => {}
@@ -682,11 +777,17 @@ fn decide_session(s: &SessionFacts) -> Check {
         (true, Some(u)) => pass(
             "session",
             format!(
-                "inside a Wayland session ({}) that uwsm manages: {u} is running",
+                "WAYLAND_DISPLAY={} is there in XDG_RUNTIME_DIR, uwsm's {u} is running,\n\
+                 nothing says ssh, tmux or screen, and {}",
                 s.wayland
                     .as_ref()
                     .map(|w| w.to_string_lossy().into_owned())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                match &s.terminal {
+                    None => "the controlling terminal was not looked at (test sandbox)",
+                    Some(Ok(Terminal::Pty)) => "the controlling terminal is a pseudo-terminal",
+                    _ => "there is no controlling terminal",
+                }
             ),
         ),
         _ => fail("session", wrong.join("\n")),

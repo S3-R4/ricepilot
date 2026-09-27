@@ -592,6 +592,27 @@ fn every_session_refusal() {
             unit_record(f, "wayland-wm@sway.desktop.service");
             vec![]
         }),
+        // Everything above passes; only the variables say where the process
+        // was started from (D69).
+        ("over ssh", |_| {
+            vec![
+                ("SSH_CONNECTION", "192.0.2.1 50000 192.0.2.2 22".to_string()),
+                ("SSH_TTY", "/dev/pts/7".to_string()),
+            ]
+        }),
+        ("over ssh, SSH_CLIENT alone", |_| {
+            vec![("SSH_CLIENT", "192.0.2.1 50000 22".to_string())]
+        }),
+        ("inside tmux: attached from who knows where", |_| {
+            vec![(
+                "TMUX",
+                "/run/user/1000/tmux-1000/default,1234,0".to_string(),
+            )]
+        }),
+        ("inside screen", |_| {
+            vec![("STY", "1234.pts-3.host".to_string())]
+        }),
+        ("inside zellij", |_| vec![("ZELLIJ", "0".to_string())]),
     ];
     let mut s = String::new();
     for (i, (name, setup)) in cases.iter().enumerate() {
@@ -655,6 +676,9 @@ fn every_unreadable_fact_is_a_refusal() {
             socket: Some(Err("<the error>".into())),
             bus: true,
             units: Some(Err("<the error>".into())),
+            remote: vec![],
+            multiplexer: vec![],
+            terminal: Some(Err("<the error>".into())),
         },
     };
     let checks = decide(&facts);
@@ -709,4 +733,97 @@ fn every_unreadable_fact_is_a_refusal() {
     s.push_str("---\n");
     s.push_str(&checks_block(&decide(&facts)));
     insta::assert_snapshot!(s);
+}
+
+/// The controlling terminal, from facts: outside the test sandbox it is read
+/// from `/proc/<pid>/stat`, which inside it would be the test runner's. A
+/// virtual console, a serial line or the system console declines; a
+/// pseudo-terminal or none at all passes this part (D69).
+#[test]
+fn the_controlling_terminal_is_judged_from_its_device_number() {
+    use relogin::*;
+    let session = |terminal| SessionFacts {
+        sandbox: None,
+        runtime: Some(PathBuf::from("/r")),
+        wayland: Some("wayland-1".into()),
+        socket: Some(Ok(Some(ricepilot::ops::read::Kind::Other))),
+        bus: true,
+        units: Some(Ok(vec![UNIT.to_string()])),
+        remote: vec![],
+        multiplexer: vec![],
+        terminal,
+    };
+    let stat = |tty_nr: u64| format!("4242 (rice pilot (x)) S 1 4242 4242 {tty_nr} 4242 0 0");
+    assert_eq!(terminal_of_stat(&stat(0)), Some(Terminal::None));
+    assert_eq!(terminal_of_stat(&stat(136 << 8)), Some(Terminal::Pty));
+    assert_eq!(
+        terminal_of_stat(&stat((143 << 8) | 255)),
+        Some(Terminal::Pty)
+    );
+    assert_eq!(terminal_of_stat("garbage"), None);
+    assert_eq!(terminal_of_stat("1 (x) S 1 1 1"), None);
+
+    let mut s = String::new();
+    for (what, tty_nr) in [
+        ("no controlling terminal", 0u64),
+        ("a pseudo-terminal", 136 << 8),
+        ("/dev/tty2", (4 << 8) | 2),
+        ("/dev/ttyS0", (4 << 8) | 64),
+        ("/dev/console", (5 << 8) | 1),
+        ("some other device", 188 << 8),
+    ] {
+        let t = terminal_of_stat(&stat(tty_nr)).unwrap();
+        let checks = decide_session_only(&session(Some(Ok(t))));
+        s.push_str(&format!("--- {what}\n{}\n", checks_block(&checks)));
+    }
+    s.push_str(&format!(
+        "--- not looked at: the test sandbox\n{}\n",
+        checks_block(&decide_session_only(&session(None)))
+    ));
+    insta::assert_snapshot!(s);
+
+    // The parser reads this process's own stat file, as the binary reads its
+    // own: read-only, and only its shape is asserted.
+    let own =
+        ricepilot::ops::read::slurp(&PathBuf::from(format!("/proc/{}/stat", std::process::id())))
+            .unwrap();
+    assert!(terminal_of_stat(&own).is_some(), "{own}");
+}
+
+/// Only the session check, from `decide` over otherwise-passing facts.
+fn decide_session_only(session: &relogin::SessionFacts) -> Vec<Check> {
+    use relogin::*;
+    let facts = Facts {
+        generation: 1,
+        switch: SwitchFacts {
+            current: Ok(Some(1)),
+        },
+        journal: JournalFacts {
+            in_flight_path: PathBuf::from("/s/journal/current.toml"),
+            in_flight: Ok(false),
+            done_path: PathBuf::from("/s/journal/done-x.toml"),
+            done: Ok(Some(ricepilot::ops::read::Kind::File)),
+        },
+        rescue: RescueFacts {
+            path: PathBuf::from("/s/rescue.sh"),
+            restores: 0,
+            found: RescueFound::Read {
+                is_the_script: Ok(true),
+                parses: Ok(true),
+            },
+        },
+        dests: DestsFacts {
+            ledger: Ok(()),
+            each: vec![],
+        },
+        lock: LockFacts {
+            path: PathBuf::from("/r/ricepilot.lock"),
+            at_its_path: Ok(true),
+        },
+        session: session.clone(),
+    };
+    decide(&facts)
+        .into_iter()
+        .filter(|c| c.what == "session")
+        .collect()
 }

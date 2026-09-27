@@ -187,8 +187,10 @@ exact commands. With `--relogin`, and only after a phase C that finished, the
 lock is kept, six preconditions are checked — the generation is current, the
 journal retired, `rescue.sh` the script for `NNNN-1` and parseable, every
 destination what the plan said with the ledger agreeing, the lock still ours,
-the process inside a session uwsm manages — and `uwsm stop` is offered behind
-a y/N, the checks run again after a yes ([DECISIONS.md](DECISIONS.md) D58).
+the environment and `$XDG_RUNTIME_DIR` showing a uwsm session, and nothing
+showing ssh, a terminal multiplexer or a virtual console (D69) — and
+`uwsm stop` is offered behind a y/N, the checks run again after a yes
+([DECISIONS.md](DECISIONS.md) D58).
 
 `adopt` shares phases A/B/C in shape but not in record: its destination is a
 real directory, which `journal::Entry` cannot describe, so it writes a
