@@ -65,7 +65,7 @@ fn finding(s: &mut String, label: &str, n: usize, of: usize, f: &Finding) {
     let _ = writeln!(
         s,
         "{label} {n} of {of}: {}",
-        crate::rescue::printable(&f.path.to_string_lossy())
+        crate::shellword::written_out(&f.path)
     );
     let _ = writeln!(s, "  {}.", f.what);
     let _ = writeln!(s, "  rule: {}", f.rule);

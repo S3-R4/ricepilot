@@ -2502,9 +2502,9 @@ with a space in it, as doctor's always did.
 
 Not covered: a path in the free text of a finding's detail, or in any other
 message, is still printed as it is; a path that is not valid UTF-8 is
-printed lossily, so a command naming one names a different path; and a
-Unicode format character (a bidirectional override) is not a control
-character and is printed as it is.
+printed lossily, so a command naming one names a different path (D76 closes
+this for commands); and a Unicode format character (a bidirectional
+override) is not a control character and is printed as it is.
 
 ## D73 — `rescue.sh` only renames over a link, and says so in its exit status
 
@@ -2628,3 +2628,48 @@ the old wording never counted either.
 No existing snapshot moved: no test reaches a written copy through the CLI,
 since that means running `Hyprland` (R1). The footer is snapshotted from
 each outcome in `tests/verify_config.rs`.
+
+## D76 — A command naming a path that is not valid UTF-8 is not printed either
+
+*M5, extends D72.* Paths are printed through `to_string_lossy`, which puts
+`U+FFFD` where a byte is not valid UTF-8. For a message that is only
+untidy; for a command meant to be pasted it is wrong — `sh '/home/u/caf�'`
+names a path with the three bytes of `U+FFFD` in it, not the one with the
+byte `0xE9`. The state directory, the attic under it and link targets read
+back from the live filesystem can all be such paths (manifests are TOML,
+so their own values cannot).
+
+**Same rule as D72: declined, not escaped.** POSIX `sh` has no way to spell
+an arbitrary byte on a printed line that is also what a user types or
+pastes (`$'\xe9'` is not in every `/bin/sh`), and the output is text.
+
+* `shellword::word` is `None` for a path that is not valid UTF-8, as for
+  one with a control character, so the `sh …/rescue.sh` line, the adopt
+  summary's way back and gc's note print `withheld` instead. That now
+  says which reason applies and shows the path with `shellword::written_out`:
+  `printable`'s escapes for control characters and `\xNN` for each byte
+  that is not UTF-8, so two different paths never print the same.
+* `doctor` builds its commands as text before laying them out, so the path
+  arrives at `shellword::command_lines` already lossy. A `run:` line holding
+  `U+FFFD` is left out as comment lines saying why, like one with a
+  control character. A path that genuinely holds `U+FFFD` is left out with
+  it: on a screen the two are indistinguishable, which is the reason for
+  the rule.
+* `rescue.sh`, which is text too: a step whose destination, link target or
+  parked name is not valid UTF-8 is not written as commands. It is a
+  comment and an `echo 'SKIPPED …: a path in this step is not valid UTF-8,
+  and this script cannot spell it'`, and it sets the exit status (D73).
+  Written lossily, `ln -sT` would have made the restored link point at a
+  path that is not the one generation `0000` recorded.
+* Where a path is only shown — a refusal's path (`Error`), `doctor`'s
+  heading, `rescue`'s "the script is at" — it is now `written_out` too.
+
+For every valid UTF-8 path the output is byte for byte what it was (the
+valid text goes through `printable` as before), so no existing snapshot
+and no existing `rescue.sh` changed. Tested with a state directory named
+`caf\xe9` (`rescue`, `doctor`) and a link target with that byte
+(`rescue.sh` run under `/bin/sh`: that step skipped, the other restored,
+exit non-zero, no staging link left).
+
+Not covered: a path in a finding's free-text detail is still printed
+lossily, as it was.

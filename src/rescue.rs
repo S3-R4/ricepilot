@@ -184,6 +184,27 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
 
     let test = bins.test.display();
     for e in &to.entries {
+        // The script is text, and a path that is not valid UTF-8 reaches it
+        // only as a lossy copy with `U+FFFD` where its bytes were: a command
+        // spelling that copy acts on a different path. Such a step is not
+        // written as a command at all (D76).
+        let parked = attic.join(parked_rel(&e.dest));
+        let spellable = e.dest.to_str().is_some()
+            && parked.to_str().is_some()
+            && e.target.as_ref().is_none_or(|t| t.to_str().is_some());
+        if !spellable {
+            let what = crate::shellword::written_out(&e.dest);
+            let _ = writeln!(s, "# {what}: not written out (D76)");
+            let _ = writeln!(
+                s,
+                "echo 'SKIPPED {}: a path in this step is not valid UTF-8, and this script cannot \
+                 spell it'",
+                what.replace('\'', "'\\''")
+            );
+            let _ = writeln!(s, "rescue_status=1");
+            let _ = writeln!(s);
+            continue;
+        }
         let dest = quote(&e.dest);
         let said = echo_safe(&e.dest);
         match &e.target {
@@ -219,7 +240,6 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
                 // available (R2), so the link is displaced into the rescue
                 // attic — the same answer `rollback` gives (D36). Only a
                 // link, and never over something already parked (D73).
-                let parked = attic.join(parked_rel(&e.dest));
                 let parent = parked.parent().unwrap_or(attic).to_path_buf();
                 let kept = quote(&parked);
                 let _ = writeln!(s, "# {} had nothing here; displace it", shown(&e.dest));

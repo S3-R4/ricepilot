@@ -102,3 +102,73 @@ fn the_sh_line_every_notice_prints() {
     no_line_carries_the_payload(&s);
     insta::assert_snapshot!(s);
 }
+
+/// A state directory whose name is not valid UTF-8. Printed, it comes out
+/// with `U+FFFD` where its byte was — a command naming it names another
+/// path (D76).
+fn state_not_utf8(f: &Fixture) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    let state = f
+        .home
+        .join(std::ffi::OsStr::from_bytes(b".local/state/caf\xe9"));
+    std::fs::create_dir_all(&state).unwrap();
+    state
+}
+
+/// No line of `text` is a command naming the lossy state directory: every
+/// line mentioning it is a `#` comment or the parenthesised notice.
+fn no_command_names_a_lossy_path(text: &str) {
+    for line in text.lines().filter(|l| l.contains('\u{FFFD}')) {
+        let t = line.trim_start();
+        assert!(
+            !["sh ", "ls ", "mv ", "ln ", "less ", "$EDITOR "]
+                .iter()
+                .any(|c| t.starts_with(c)),
+            "a line names the lossy path as if it could be pasted: {line}\n{text}"
+        );
+    }
+}
+
+#[test]
+fn rescue_prints_no_sh_line_for_a_path_that_is_not_utf8() {
+    let f = Fixture::new_in("m5-ctl", "rescue_not_utf8");
+    let state = state_not_utf8(&f);
+    std::fs::write(state.join("rescue.sh"), "#!/bin/sh\n").unwrap();
+    let (code, text) = run(&f, &state, &["rescue"]);
+    no_command_names_a_lossy_path(&text);
+    assert!(
+        text.contains(r"caf\xe9/rescue.sh: its name is not valid UTF-8"),
+        "{text}"
+    );
+    insta::assert_snapshot!(format!("exit {code}\n{text}"));
+}
+
+#[test]
+fn doctor_leaves_out_a_command_naming_a_path_that_is_not_utf8() {
+    let f = Fixture::new_in("m5-ctl", "doctor_not_utf8");
+    let state = state_not_utf8(&f);
+    for n in 0..21 {
+        std::fs::create_dir_all(state.join("verify").join(format!("20260927T1200{n:02}Z")))
+            .unwrap();
+    }
+    let (_, text) = run(&f, &state, &["doctor"]);
+    no_command_names_a_lossy_path(&text);
+    assert!(
+        text.contains("# left out: a path in this command is not valid UTF-8"),
+        "{text}"
+    );
+}
+
+/// The `sh` line renderer, directly, for a path that is not valid UTF-8.
+#[test]
+fn the_sh_line_for_a_path_that_is_not_utf8() {
+    use ricepilot::cli::render::sh_line;
+    use std::os::unix::ffi::OsStrExt;
+    let p = Path::new(std::ffi::OsStr::from_bytes(
+        b"/home/u/.local/state/caf\xe9/rescue.sh",
+    ));
+    let s = sh_line(p);
+    assert!(!s.starts_with("sh "), "{s}");
+    assert!(!s.contains('\u{FFFD}'), "{s}");
+    insta::assert_snapshot!(s);
+}

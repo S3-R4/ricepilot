@@ -472,7 +472,7 @@ pub fn sh_line(script: &Path) -> String {
 pub fn rescue(path: &Path) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "the standalone rescue script is at:");
-    let _ = writeln!(s, "  {}", crate::rescue::printable(&path.to_string_lossy()));
+    let _ = writeln!(s, "  {}", crate::shellword::written_out(path));
     let _ = writeln!(s);
     let _ = writeln!(s, "run it from a TTY (Ctrl+Alt+F2 … F6) with:");
     let _ = writeln!(s, "  {}", sh_line(path));

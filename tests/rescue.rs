@@ -500,3 +500,40 @@ fn unquoted_code(text: &str) -> String {
     }
     out
 }
+
+/// A link target that is not valid UTF-8 cannot be spelled in the script,
+/// which is text: written lossily it would restore the link to a different
+/// path. That step is left out and says so; the others still run, and the
+/// exit status says not everything was restored (D76).
+#[test]
+fn a_path_that_is_not_utf8_is_skipped_not_misspelled() {
+    use std::os::unix::ffi::OsStrExt;
+    let f = Fixture::new_in("m3", "rescue_not_utf8");
+    let old = f.dir("rice/old");
+    f.dir("rice/old/hypr");
+    let odd = old.join(std::ffi::OsStr::from_bytes(b"caf\xe9"));
+    f.dir(".config");
+    let hypr = f.link(".config/hypr", &old.join("hypr"));
+    let foot = f.link(".config/foot", &odd);
+    let g = Generation::observe(0, "old", WHEN, &[hypr.clone(), foot.clone()]).unwrap();
+
+    let new = f.dir("rice/new");
+    f.link(".config/hypr", &new);
+    f.link(".config/foot", &new);
+
+    let script = rescue::regenerate(&f.state(), &g).unwrap();
+    let text = read::slurp(&script).unwrap();
+    assert!(!text.contains('\u{FFFD}'), "{text}");
+    assert!(
+        text.contains(r"SKIPPED ") && text.contains("not valid UTF-8"),
+        "{text}"
+    );
+
+    let (code, output) = run_script_status(&script);
+    assert_ne!(code, Some(0), "{output}");
+    assert_eq!(read::readlink(&hypr).unwrap(), old.join("hypr"));
+    assert_eq!(read::readlink(&foot).unwrap(), new, "left as it was");
+    assert!(read::lstat_or_absent(&f.path(".config/foot.rp-rescue"))
+        .unwrap()
+        .is_none());
+}

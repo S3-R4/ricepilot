@@ -659,6 +659,7 @@ const DOCTOR_MAY_NAME: &[&str] = &[
     "crate::rescue::script",
     "crate::shellword::command_lines",
     "crate::shellword::quoted",
+    "crate::shellword::written_out",
     "crate::verify::build_via",
     "crate::verify::compare",
     "crate::verify::manifest_path",

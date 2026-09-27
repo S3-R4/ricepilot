@@ -1,0 +1,5 @@
+---
+source: tests/printed_commands.rs
+expression: s
+---
+(no command is printed for /home/u/.local/state/caf\xe9/rescue.sh: its name is not valid UTF-8, and a command printed here would name a different path. D76)

@@ -61,7 +61,7 @@ pub enum Error {
 }
 
 fn shown(p: &std::path::Path) -> String {
-    crate::rescue::printable(&p.to_string_lossy())
+    crate::shellword::written_out(p)
 }
 
 impl Error {

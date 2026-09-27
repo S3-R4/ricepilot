@@ -1,0 +1,14 @@
+---
+source: tests/printed_commands.rs
+expression: "format!(\"exit {code}\\n{text}\")"
+---
+exit 0
+the standalone rescue script is at:
+  <HOME>/.local/state/caf\xe9/rescue.sh
+
+run it from a TTY (Ctrl+Alt+F2 … F6) with:
+  (no command is printed for <HOME>/.local/state/caf\xe9/rescue.sh: its name is not valid UTF-8, and a command printed here would name a different path. D76)
+
+it restores the previous generation using absolute paths only. it needs no ricepilot,
+no D-Bus, no hyprctl and no shell but /bin/sh, and it removes nothing: anything it
+displaces goes to `state/attic/`.
