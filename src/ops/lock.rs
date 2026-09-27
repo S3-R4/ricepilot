@@ -22,14 +22,39 @@ use crate::{Error, Result};
 #[derive(Debug)]
 pub struct Lock {
     path: PathBuf,
-    /// Never read. Held so the descriptor — and with it the lock — outlives
-    /// the call that took it.
-    _fd: OwnedFd,
+    /// Held so the descriptor — and with it the lock — outlives the call that
+    /// took it. Read only by [`Lock::is_at_its_path`].
+    fd: OwnedFd,
 }
 
 impl Lock {
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Whether the file this lock is held on is still the file at its path.
+    ///
+    /// `flock` attaches to an inode, not a name. While this process holds
+    /// the lock no other ricepilot can hold it *on this inode* — but if the
+    /// file at the path was replaced (renamed over, or moved away and made
+    /// again), the next ricepilot opens the new file and locks that, and both
+    /// believe they are alone. So "no other ricepilot holds the lock" is
+    /// proved by holding it **and** by the path still naming the inode it is
+    /// held on: one `fstat` of the descriptor, one `lstat` of the path, the
+    /// `(dev, ino)` of each compared (D58). Read-only.
+    #[allow(clippy::unnecessary_cast)]
+    pub fn is_at_its_path(&self) -> Result<bool> {
+        let held = rustix::fs::fstat(&self.fd).map_err(|e| {
+            io(
+                format!("stat of the lock held on {}", self.path.display()),
+                e,
+            )
+        })?;
+        let now = super::read::lstat(&self.path)?;
+        Ok(now.is_some_and(|m| {
+            m.kind == super::read::Kind::File
+                && (m.dev, m.ino) == (held.st_dev as u64, held.st_ino as u64)
+        }))
     }
 }
 
@@ -59,7 +84,7 @@ pub fn acquire(path: &Path) -> Result<Lock> {
     match rustix::fs::flock(&fd, FlockOperation::NonBlockingLockExclusive) {
         Ok(()) => Ok(Lock {
             path: path.to_path_buf(),
-            _fd: fd,
+            fd,
         }),
         Err(rustix::io::Errno::WOULDBLOCK) => Err(Error::Locked {
             path: path.to_path_buf(),

@@ -1,0 +1,56 @@
+---
+source: tests/relogin.rs
+expression: r.stdout
+---
+rollback: to generation 0000 (`(the state before the first switch)`)
+
+observed:
+  owned link     <HOME>/.config/foot
+  owned link     <HOME>/.config/hypr
+  owned link     <HOME>/.config/btop  (no longer managed after this)
+
+applying 9 operation(s):
+  stage link   <HOME>/.config/foot.rp-tmp-0 -> <HOME>/rice/old/foot
+  stage link   <HOME>/.config/hypr.rp-tmp-1 -> <HOME>/rice/old/hypr
+  exchange     <HOME>/.config/foot <-> <HOME>/.config/foot.rp-tmp-0
+  exchange     <HOME>/.config/hypr <-> <HOME>/.config/hypr.rp-tmp-1
+  to attic     <HOME>/.config/foot.rp-tmp-0 -> <attic><HOME>/.config/foot
+  to attic     <HOME>/.config/hypr.rp-tmp-1 -> <attic><HOME>/.config/hypr
+  to attic     <HOME>/.config/btop -> <attic><HOME>/.config/btop
+  fsync dir    <HOME>/.config
+  fsync dir    <HOME>/.local/state/ricepilot/attic/<TS>-1
+
+applied. this is generation 0002.
+
+displaced links are in:
+  <HOME>/.local/state/ricepilot/attic/<TS>-1
+nothing was removed.
+
+1 destination(s) are no longer managed. ricepilot cannot make a path absent —
+that would be a deletion — so their links were moved into the attic above:
+  <HOME>/.config/btop
+
+to undo this:
+  ricepilot rollback --commit            re-applies generation 0001
+  sh <HOME>/.local/state/ricepilot/rescue.sh   the same thing, from a TTY, without ricepilot
+
+this changed the filesystem, not the running session. log out and back in to see it:
+  uwsm stop
+
+never `hyprctl dispatch exit` and never kill Hyprland — `uwsm stop` is the clean
+logout. if the session does not come back, TTY F2–F6 and run the rescue script above.
+
+--relogin: every check passed.
+  ok  switch   generation 0002 is current
+  ok  journal  the switch's journal is retired: <HOME>/.local/state/ricepilot/journal/done-<TS>-1.toml
+  ok  rescue   <HOME>/.local/state/ricepilot/rescue.sh restores generation 0001 and passes `sh -n`
+  ok  links    2 link(s) are exactly what the plan said and what the ledger recorded, 1 retired and empty
+  ok  lock     this ricepilot holds <HOME>/.run/ricepilot.lock, and it is still the file at that path
+  ok  session  inside a Wayland session (wayland-1) that uwsm manages: wayland-wm@hyprland.desktop.service is running
+
+`uwsm stop` ends this session the clean way: every window closes, and anything unsaved
+in them is lost. the login screen comes back, and the next login starts generation 0002.
+if it does not come up, from a TTY (Ctrl+Alt+F2 … F6):
+  sh <HOME>/.local/state/ricepilot/rescue.sh
+log out now with `uwsm stop`? [y/N] no
+not logged out, and nothing was run. the switch takes effect at the next login.

@@ -1,0 +1,16 @@
+---
+source: tests/relogin.rs
+expression: r.stdout
+---
+switch: to profile `old`
+
+observed:
+  owned link     <HOME>/.config/hypr
+  owned link     <HOME>/.config/foot
+
+nothing to do: every destination already matches.
+
+--relogin: nothing was switched — every destination already matches — so no logout
+is offered. if the switch that linked them has not been followed by a login yet, log
+out yourself:
+  uwsm stop

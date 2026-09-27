@@ -166,7 +166,12 @@ destination the new target state no longer includes, which is *retired* into
 the attic rather than removed ([DECISIONS.md](DECISIONS.md) D36); fsync the
 touched directories; write generation `NNNN` and flip `current`; record the
 POST observation; regenerate `rescue.sh`; print the relogin notice with the
-exact commands.
+exact commands. With `--relogin`, and only after a phase C that finished, the
+lock is kept, six preconditions are checked — the generation is current, the
+journal retired, `rescue.sh` the script for `NNNN-1` and parseable, every
+destination what the plan said with the ledger agreeing, the lock still ours,
+the process inside a session uwsm manages — and `uwsm stop` is offered behind
+a y/N, the checks run again after a yes ([DECISIONS.md](DECISIONS.md) D58).
 
 `adopt` shares phases A/B/C in shape but not in record: its destination is a
 real directory, which `journal::Entry` cannot describe, so it writes a
@@ -278,7 +283,8 @@ when the profile has changed, so a script can act on the answer without
 parsing the report (see [DECISIONS.md](DECISIONS.md) D34).
 
 Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
-`adopt`, `switch` (`--relogin`, `--strict`), `rollback`, `recover`, `gc`.
+`adopt`, `switch` (`--relogin`, `--strict`), `rollback` (`--relogin`),
+`recover`, `gc`.
 
 * `capture <profile> --from <dir>…` copies live directories into a new
   profile and writes its manifest. It activates nothing: no link is created,
@@ -311,6 +317,13 @@ Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
 * Confirmation has no `--yes`. The prompt always runs; `inquire` when stdin
   is a terminal, the same question text read line-wise when it is not, so a
   test drives the real confirmation rather than skipping it (D47).
+* `switch --relogin` and `rollback --relogin` offer `uwsm stop` — the one
+  subprocess that ends the session — only after a switch that completed in
+  the same process, and only when every precondition of D58 holds; a dry
+  run, a declined switch, one with nothing to do, or a failed check says why
+  and offers nothing. The `uwsm stop` token has one constructor, which takes
+  the passed pre-flight and the yes as values. Never `hyprctl dispatch exit`,
+  never a signal to Hyprland.
 * `doctor` reports and never fixes, and is read-only by construction: it
   reaches the machine only through `ops::look::Look`, takes no lock, and
   builds no verify-config scratch copy ([DECISIONS.md](DECISIONS.md) D57).

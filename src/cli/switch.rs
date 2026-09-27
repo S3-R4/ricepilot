@@ -81,6 +81,86 @@ impl Request {
     }
 }
 
+/// How a `switch` or `rollback` ended, beside what it printed.
+///
+/// `--relogin` reads this and nothing else to decide whether a logout may be
+/// offered at all: only [`Ended::Completed`] can lead to one (D58).
+pub struct Outcome {
+    pub output: Output,
+    pub ended: Ended,
+}
+
+pub enum Ended {
+    /// The pre-flight declined; nothing was touched.
+    Declined,
+    /// Every destination already matched; nothing was done.
+    NothingToDo,
+    /// The plan was printed and `--commit` was not given.
+    DryRun,
+    /// Phase C finished and the journal was retired. Boxed: it carries the
+    /// whole record of what was done, and the other endings carry nothing.
+    Completed(Box<Completed>),
+}
+
+/// Proof that a switch or rollback ran to the end of phase C **in this
+/// process**: the exchanges happened, the generation and the ledger were
+/// recorded, `rescue.sh` was regenerated and the journal was retired — in
+/// that order, with nothing left to do.
+///
+/// It is made in one place, the last line of [`run_with`], and its fields are
+/// private, so holding one means exactly that. It also still holds the
+/// process lock the switch took, so nothing can start another operation for
+/// as long as it lives: `--relogin` keeps it until `uwsm stop` has been run
+/// or declined (D58).
+pub struct Completed {
+    lock: lock::Lock,
+    paths: Paths,
+    id: String,
+    generation: u32,
+    back_to: Generation,
+    targets: Vec<Target>,
+    retired: Vec<PathBuf>,
+    rescue: PathBuf,
+    journal_done: PathBuf,
+}
+
+impl Completed {
+    /// The held process lock.
+    pub fn lock(&self) -> &lock::Lock {
+        &self.lock
+    }
+    pub fn paths(&self) -> &Paths {
+        &self.paths
+    }
+    /// The switch id: `journal/done-<id>.toml`, `attic/<id>/`.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+    /// The generation this switch recorded and made current.
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+    /// The generation before it, which `rescue.sh` now restores.
+    pub fn back_to(&self) -> &Generation {
+        &self.back_to
+    }
+    /// The destinations the plan linked, and where to.
+    pub fn targets(&self) -> &[Target] {
+        &self.targets
+    }
+    /// The destinations the plan retired into the attic, now absent.
+    pub fn retired(&self) -> &[PathBuf] {
+        &self.retired
+    }
+    pub fn rescue(&self) -> &std::path::Path {
+        &self.rescue
+    }
+    /// Where the retired journal went.
+    pub fn journal_done(&self) -> &std::path::Path {
+        &self.journal_done
+    }
+}
+
 /// Read what is at each target's `src`, so the planner can refuse a link that
 /// would dangle without doing any IO itself.
 ///
@@ -112,7 +192,7 @@ pub fn source_facts(targets: &[Target]) -> Result<Vec<plan::SourceFact>> {
 }
 
 /// Phase A, B and C.
-pub fn run(paths: &Paths, req: &Request, commit: bool) -> Result<Output> {
+pub fn run(paths: &Paths, req: &Request, commit: bool) -> Result<Outcome> {
     run_with(paths, req, commit, &mut |_| Ok(()))
 }
 
@@ -129,10 +209,12 @@ pub fn run_with(
     req: &Request,
     commit: bool,
     after_step: &mut dyn FnMut(usize) -> Result<()>,
-) -> Result<Output> {
+) -> Result<Outcome> {
     // ---- Phase A: decide. Nothing below mutates until the commit gate. ----
 
-    let _lock = lock::acquire(&paths.lock_path()?)?;
+    // Held until the returned `Completed` is dropped, or to the end of this
+    // function for any other outcome.
+    let lock = lock::acquire(&paths.lock_path()?)?;
 
     // An in-flight journal means a previous switch did not finish. Planning a
     // new one against a half-switched machine would produce a correct plan for
@@ -183,25 +265,34 @@ pub fn run_with(
     // side effects (R4). It is not an `Err` because the itemised list is the
     // answer, and an error message is one line.
     if let Plan::Decline { .. } = &plan {
-        return Ok(Output {
-            text: header,
-            code: ExitCode::Refused,
+        return Ok(Outcome {
+            output: Output {
+                text: header,
+                code: ExitCode::Refused,
+            },
+            ended: Ended::Declined,
         });
     }
     let Plan::Apply { ops } = &plan else {
         // NoOp: reality already matches. Nothing to journal, nothing to
         // record, and no new generation — a generation per no-op switch would
         // make `rollback` step through states the machine was never in.
-        return Ok(Output {
-            text: header,
-            code: ExitCode::Ok,
+        return Ok(Outcome {
+            output: Output {
+                text: header,
+                code: ExitCode::Ok,
+            },
+            ended: Ended::NothingToDo,
         });
     };
 
     if !commit {
-        return Ok(Output {
-            text: header + render::UNCOMMITTED,
-            code: ExitCode::Ok,
+        return Ok(Outcome {
+            output: Output {
+                text: header + render::UNCOMMITTED,
+                code: ExitCode::Ok,
+            },
+            ended: Ended::DryRun,
         });
     }
 
@@ -271,9 +362,9 @@ pub fn run_with(
     // Retiring the journal is the last act (D25). While it is in place the
     // machine can be recovered again, and that must stay true until every
     // step above has succeeded.
-    journal::mark_done(&paths.journal_path(), &id)?;
+    let journal_done = journal::mark_done(&paths.journal_path(), &id)?;
 
-    Ok(Output {
+    let output = Output {
         text: header
             + &render::switch_done(
                 req,
@@ -285,5 +376,19 @@ pub fn run_with(
                 &req.retire,
             ),
         code: ExitCode::Ok,
+    };
+    Ok(Outcome {
+        output,
+        ended: Ended::Completed(Box::new(Completed {
+            lock,
+            paths: paths.clone(),
+            id,
+            generation: new_id,
+            back_to,
+            targets: req.targets.clone(),
+            retired: req.retire.clone(),
+            rescue: script,
+            journal_done,
+        })),
     })
 }

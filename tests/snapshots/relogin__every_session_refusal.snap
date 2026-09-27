@@ -1,0 +1,42 @@
+---
+source: tests/relogin.rs
+expression: s
+---
+--- nothing set: a TTY, ssh, a timer
+  NO  session  XDG_RUNTIME_DIR is not set, so there is no session here to find
+               WAYLAND_DISPLAY is not set: this ricepilot is not running inside a graphical session
+               (a TTY, ssh, a timer), and `uwsm stop` would end a session you are not looking at
+               DBUS_SESSION_BUS_ADDRESS is not set: uwsm asks systemd for the logout over the session
+               bus, and without one `uwsm stop` has nothing to ask
+
+--- no WAYLAND_DISPLAY
+  NO  session  WAYLAND_DISPLAY is not set: this ricepilot is not running inside a graphical session
+               (a TTY, ssh, a timer), and `uwsm stop` would end a session you are not looking at
+
+--- no session bus
+  NO  session  DBUS_SESSION_BUS_ADDRESS is not set: uwsm asks systemd for the logout over the session
+               bus, and without one `uwsm stop` has nothing to ask
+
+--- the runtime directory is the real one, outside the sandbox
+  NO  session  XDG_RUNTIME_DIR=/run/user/1000 is outside the test sandbox <SANDBOX>.
+               inside the sandbox ricepilot reads no real session's state (D56)
+
+--- WAYLAND_DISPLAY is a path
+  NO  session  WAYLAND_DISPLAY=/elsewhere/wayland-0 is not a plain socket name.
+               ricepilot looks for the socket only in XDG_RUNTIME_DIR
+
+--- WAYLAND_DISPLAY names no socket
+  NO  session  WAYLAND_DISPLAY=wayland-9 names no socket in XDG_RUNTIME_DIR: no compositor is listening there
+
+--- WAYLAND_DISPLAY names a regular file
+  NO  session  WAYLAND_DISPLAY=wayland-file: what is at that name in XDG_RUNTIME_DIR is not a socket
+
+--- no uwsm unit: a session uwsm did not start
+  NO  session  no uwsm compositor unit (`wayland-wm@….service`) is running for this user —
+               <HOME>/.run/systemd/units records none. this session is not managed by uwsm, and
+               `uwsm stop` is the only logout ricepilot runs: never `hyprctl dispatch exit`, never
+               a signal to Hyprland. log out the way you logged in
+
+--- two uwsm units
+  NO  session  more than one uwsm compositor unit is running: wayland-wm@hyprland.desktop.service, wayland-wm@sway.desktop.service.
+               `uwsm stop` would stop one of them, and ricepilot will not guess which one is this session

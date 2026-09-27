@@ -17,7 +17,9 @@ input configuration. A partial live apply is exactly the "half-applied state"
 R5 forbids.
 
 **Instead:** a switch is an on-disk relink that takes effect at the next
-login. `switch --relogin` will run `uwsm stop` after a y/N confirmation.
+login. `switch --relogin` (and `rollback --relogin`) offers `uwsm stop`
+after a switch that completed, a pre-flight and a y/N
+([DECISIONS.md](DECISIONS.md) D58).
 An opt-in `--live` for the quickshell layer only, with a dead-man
 auto-rollback, is a v2 candidate.
 

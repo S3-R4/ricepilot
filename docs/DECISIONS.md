@@ -1075,7 +1075,9 @@ that only the verify-config sandbox — the next task — will be able to make,
 so "run verify-config on the real config" is not a mistake anyone can type.
 Neither has been run: `uwsm stop` because it ends the session, and
 verify-config because it has no sandbox yet. (D55 adds the sandbox and the
-one constructor; the real binary is still never run by default.) The argv `uwsm stop` will be
+one constructor; the real binary is still never run by default. D58 adds
+`Relogin`'s one constructor, behind a pre-flight and a `Yes`; `uwsm stop` is
+still never run by a test.) The argv `uwsm stop` will be
 run with is a constant, asserted in a test.
 
 ## D53 — The requires-check: one `pacman -Q` per package, exit status only, and rollback too
@@ -1522,3 +1524,121 @@ ricepilot is running. The theme-daemon match is on argv (`caelestia` then
 not seen. The `SESSION_DIR` patch is offered only for an assignment it can
 read; a script that builds the path otherwise is reported with the line and
 no patch.
+
+## D58 — `--relogin`: offered after a completed switch, six checks and a yes, and the token needs all three
+
+*M5.* `uwsm stop` is the one entry on the allowlist that changes the running
+machine: it logs the user out. A logout after a switch whose rescue script
+did not get written is how a user ends up at a greeter with no way back, so
+what must be true before it is *offered* is the decision, and each part of
+it is a value the next step cannot be reached without.
+
+**When it is offered at all.** Only after a `switch` or `rollback` that ran
+to the end of phase C *in this process*: `switch::Ended::Completed`, made on
+the last line of `run_with`, after the journal is retired. A dry run, a
+declined switch and a switch with nothing to do each say why no logout is
+offered and exit as they would have. "Nothing to do" is deliberately not
+"the switch happened earlier, log out anyway": this process did not do that
+switch and holds no proof of it, and the message says to run `uwsm stop` by
+hand if that is what is wanted.
+
+**`rollback` gets it too.** It is the same code path (DESIGN §6), it ends in
+the same `Completed`, and it gets the same checks. The argument for leaving
+it off — rollback is what you run when things are already wrong — is an
+argument for the checks, not against the offer: a rollback from a session
+that came up broken is exactly when the user wants the greeter back on the
+old profile, and from a TTY the session check declines anyway.
+
+**The six preconditions.** Read after the switch — only read — into
+`relogin::Facts`, judged by the pure `relogin::decide`; every one must pass,
+and a refusal lists all six, each `ok` or `NO`, not the first to fail:
+
+1. **switch** — `generations/current` is the generation this switch recorded.
+2. **journal** — nothing is at `journal/current.toml`, and this switch's
+   `journal/done-<id>.toml` is a regular file.
+3. **rescue** — `rescue.sh` is a regular file, byte-for-byte the script
+   `rescue::script` writes for generation N-1 with the binaries found now
+   (the comparison `doctor` makes, D57), and `sh -n` accepts the text on the
+   disk. Its stderr is not shown: bash here, dash on CI.
+4. **links** — every destination the plan linked is a symlink whose target
+   string is the plan's source, and the ledger, re-read, has a row with that
+   target *and* the link's `(dev, ino)` — so a look-alike link put there by
+   something else fails; every destination the plan retired is absent and has
+   no row.
+5. **lock** — this process holds the `flock` (the `Completed` owns the
+   `Lock`, taken in phase A), and the lock path still names the inode it is
+   held on (`Lock::is_at_its_path`: one `fstat`, one `lstat`). `flock` is
+   per inode, so a lock file replaced under its holder lets a second
+   ricepilot lock the new one and believe itself alone.
+6. **session** — `XDG_RUNTIME_DIR` is set and absolute (inside the test
+   sandbox: below its root, or nothing is read, D56); `WAYLAND_DISPLAY` is a
+   plain name, and what is at it in `XDG_RUNTIME_DIR` is neither a file, a
+   directory nor a link; `DBUS_SESSION_BUS_ADDRESS` is set; and exactly one
+   `wayland-wm@*.service` — the unit uwsm runs the compositor as — is
+   recorded in `$XDG_RUNTIME_DIR/systemd/units/invocation:<unit>`, the
+   record systemd's user manager keeps for each active unit (observed with
+   systemd's user manager and uwsm 0.26.5 on the target machine). A listing,
+   two `lstat`s and four variables. Not `uwsm check is-active`: that is a
+   second uwsm subprocess, over D-Bus, for a question the filesystem answers
+   read-only, and the allowlist is not widened to ask it.
+
+Outside a uwsm session it declines rather than asks. From a TTY, ssh or a
+timer, `uwsm stop` would end a session the user is not looking at; in a
+session uwsm did not start it has nothing to stop; and the only other
+logouts — `hyprctl dispatch exit`, a signal to Hyprland — are the ones
+AGENT_PROMPT §1 rules out, and nothing on the allowlist can do either.
+
+**Checked, asked, checked again.** The first check decides whether to ask.
+The switch's own output, every check and the `sh …/rescue.sh` line are
+printed above the question, which is `confirm`'s y/N — default no, no flag
+that skips it (D47). An answer can take minutes, and an installer can
+replace a link in less, so after a yes the checks run again and the token is
+made from the second result. The lock is held from phase A of the switch
+until `uwsm stop` returns, so no other ricepilot starts in between.
+
+**The token has one constructor, and it takes the proof.**
+`ops::exec::Relogin::after(&Cleared, Yes)`, `pub(crate)`, is the one place a
+`Relogin` is written. `cli::relogin::Cleared` has private fields, is made
+only by `relogin::preflight` when all six checks pass, and owns the
+`Completed` (and so the lock). `cli::confirm::Yes` has a private field and is
+made only by `confirm::affirmed`, when the question was answered yes.
+`tests/exec.rs` holds the source text to this — each of `Relogin { … }`,
+`Cleared { … }`, `Yes { … }` and `Completed { … }` written once, in its one
+file; `Relogin::after(`, `UwsmStop(` and `confirm::affirmed(` named only in
+`cli/relogin.rs` — and `compile_fail` doctests show nothing outside the
+crate can write a `Relogin` or call its constructor.
+
+**The environment.** D52's policy, unchanged, now built by the pure
+`exec::uwsm_stop_invocation(get)`, which `Call::invocation` returns for
+`UwsmStop` and which `run` uses: `LC_ALL=C`; `HOME`, `XDG_RUNTIME_DIR` and
+`DBUS_SESSION_BUS_ADDRESS` when set (uwsm finds the user's systemd through
+the bus); `PATH=/usr/bin`. Not `WAYLAND_DISPLAY`,
+`HYPRLAND_INSTANCE_SIGNATURE`, `PYTHONPATH` or `LD_PRELOAD`. `tests/exec.rs`
+asserts the argv and the whole environment from a table.
+
+**Exit status.** A logout not offered, declined by a check or answered no
+leaves the switch's status: the switch did its job and says so, and the
+logout was an offer, reported on stdout. Running `uwsm stop` and it not
+working is an error: not installed is a refusal (R3), a timeout or a
+non-zero exit is `Failed` (4) with "the switch itself is complete; log out
+by hand".
+
+**Tested up to the exec boundary, never past it.** Inside the test sandbox
+`ops::exec::run` refuses `uwsm` before looking for it (D56), so a test that
+answers yes reaches exactly that refusal — its presence on stderr is the
+evidence the call was made, and its absence after a no, an empty answer or
+end of input is the evidence nothing was. The session is built in the
+fixture's own runtime directory (a bound Unix socket, a unit record); the
+real one is never read. Each precondition is broken after a real in-process
+switch and its refusal snapshotted; the second check is tested by replacing
+`rescue.sh` while the question is on the screen, then answering yes. What
+is not tested, and cannot be without logging the user out: that `uwsm stop`
+with this environment ends the session. That is the acceptance run's.
+
+What this does not prove, recorded rather than implied: that the Wayland
+socket belongs to the compositor in the uwsm unit (a nested compositor inside
+the session would pass); `read::Kind::Other` accepts a fifo as well as a
+socket; the bus address is required to be set, not checked to be this
+user's; systemd's `invocation:` records are its implementation, not a
+documented interface; and a ricepilot started with a different
+`RICEPILOT_RUNTIME_DIR` takes a different lock, as it always has.

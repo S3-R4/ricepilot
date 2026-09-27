@@ -9,6 +9,7 @@ pub mod capture;
 pub mod confirm;
 pub mod init;
 pub mod paths;
+pub mod relogin;
 pub mod render;
 pub mod switch;
 
@@ -74,7 +75,9 @@ pub enum Command {
         profile: String,
         #[arg(long)]
         commit: bool,
-        /// Run `uwsm stop` after a y/N confirmation.
+        /// After a completed `--commit`, check that the machine is ready for
+        /// a new login and offer to log out with `uwsm stop` — y/N, default
+        /// no.
         #[arg(long)]
         relogin: bool,
         /// Treat volatile-path drift as an error instead of a report.
@@ -85,6 +88,11 @@ pub enum Command {
     Rollback {
         #[arg(long)]
         commit: bool,
+        /// After a completed `--commit`, check that the machine is ready for
+        /// a new login and offer to log out with `uwsm stop` — y/N, default
+        /// no.
+        #[arg(long)]
+        relogin: bool,
     },
     /// Finish or undo an interrupted switch by observing reality.
     Recover {
@@ -153,7 +161,7 @@ pub fn run(command: Command) -> Result<Output> {
         Command::Recover { commit } => cmd_recover(&paths, commit).map(Output::from),
         Command::Verify { profile } => cmd_verify(&paths, &profile),
         Command::Rescue => cmd_rescue(&paths).map(Output::from),
-        Command::Rollback { commit } => cmd_rollback(&paths, commit),
+        Command::Rollback { commit, relogin } => cmd_rollback(&paths, commit, relogin),
         Command::Switch {
             profile,
             commit,
@@ -373,7 +381,7 @@ fn cmd_rescue(paths: &paths::Paths) -> Result<String> {
     Ok(render::rescue(&p))
 }
 
-/// `ricepilot switch <profile> [--commit]`.
+/// `ricepilot switch <profile> [--commit] [--relogin]`.
 ///
 /// The target state comes from the profile manifest; the destinations to
 /// retire come from the ledger — every path ricepilot owns that this profile
@@ -388,15 +396,6 @@ fn cmd_switch(
 ) -> Result<Output> {
     // A flag that is accepted and quietly ignored is worse than one that is
     // refused: the user asked for something and was told nothing.
-    if relogin {
-        return Err(Error::NotPossible {
-            anchor: "not-yet-implemented",
-            why: "`--relogin` runs `uwsm stop`, which ends the session, and the pre-flight \
-                  and confirmation that must come before it are not built yet (M5). the switch \
-                  itself works — run it without the flag and log out yourself"
-                .into(),
-        });
-    }
     if strict {
         return Err(Error::NotPossible {
             anchor: "not-yet-implemented",
@@ -407,6 +406,15 @@ fn cmd_switch(
         });
     }
 
+    let req = switch_request(paths, name)?;
+    finish(switch::run(paths, &req, commit)?, relogin)
+}
+
+/// What `switch <name>` asks [`switch::run`] for: the profile's targets, and
+/// every destination the ledger owns that the profile does not claim, to
+/// retire (D36). Public so an in-process test drives the same request the
+/// command does.
+pub fn switch_request(paths: &paths::Paths, name: &str) -> Result<switch::Request> {
     let profile = paths::load(paths, name)?;
     let root = profile.root(&paths.home);
     let targets = profile.manifest.targets(&profile.dir, &paths.home);
@@ -419,7 +427,7 @@ fn cmd_switch(
         .filter(|d| !targets.iter().any(|t| &t.dest == d))
         .collect();
 
-    let req = switch::Request {
+    Ok(switch::Request {
         kind: switch::Kind::Switch,
         label: format!("to profile `{name}`"),
         profile: name.to_string(),
@@ -427,17 +435,26 @@ fn cmd_switch(
         retire,
         requires: profile.manifest.requires.clone(),
         manifest_of: Some((root, profile.manifest.volatile.clone())),
-    };
-    switch::run(paths, &req, commit)
+    })
 }
 
-/// `ricepilot rollback [--commit]`.
+/// The end of a `switch` or `rollback`: its output, or — with `--relogin` —
+/// the pre-flight and the offer to log out that follow a completed one
+/// (D58).
+fn finish(outcome: switch::Outcome, relogin: bool) -> Result<Output> {
+    if relogin {
+        return relogin::offer(outcome, &|name| std::env::var_os(name));
+    }
+    Ok(outcome.output)
+}
+
+/// `ricepilot rollback [--commit] [--relogin]`.
 ///
 /// Re-applies generation `NNNN-1` through [`switch::run`] — the same lock, the
 /// same pre-flight, the same journal, the same recovery story. The only thing
 /// that differs from a `switch` is where the target state comes from, which is
 /// why it is an argument rather than a second implementation.
-fn cmd_rollback(paths: &paths::Paths, commit: bool) -> Result<Output> {
+fn cmd_rollback(paths: &paths::Paths, commit: bool, relogin: bool) -> Result<Output> {
     let state = &paths.state;
     let Some(current) = crate::generations::current(state)? else {
         return Err(Error::Refused {
@@ -497,5 +514,5 @@ fn cmd_rollback(paths: &paths::Paths, commit: bool) -> Result<Output> {
         requires,
         manifest_of,
     };
-    switch::run(paths, &req, commit)
+    finish(switch::run(paths, &req, commit)?, relogin)
 }

@@ -1,7 +1,8 @@
-//! Per-path confirmation for `init` and `adopt` (`SAFETY.md` R6).
+//! Per-path confirmation for `init` and `adopt`, and the logout `--relogin`
+//! offers (`SAFETY.md` R6).
 //!
-//! These two commands change what gets touched on a real machine, so a human
-//! says yes to each path or nothing happens to it. The interesting question
+//! These change what gets touched on a real machine, so a human says yes to
+//! each path — or to ending the session — or nothing happens. The interesting question
 //! is not how to ask — it is how a test can drive the asking without the
 //! asking being *skipped*.
 //!
@@ -28,6 +29,28 @@ use std::io::{BufRead as _, IsTerminal as _, Write as _};
 /// The question, rendered identically whichever way it is asked.
 pub fn question_text(what: &str) -> String {
     format!("{what} [y/N]")
+}
+
+/// A yes, as a value: proof that the question was asked and answered yes.
+///
+/// Made in one place, [`affirmed`], and nowhere else — the field is private
+/// — so a function that demands one cannot be reached without the question
+/// having been put to a human. `--relogin` is the one that demands it: the
+/// `uwsm stop` token's constructor takes a `Yes` (D58). `init` and `adopt`
+/// branch on [`ask`]'s `bool`, which is the same question and the same
+/// answer, without the type.
+#[derive(Debug)]
+pub struct Yes {
+    _said: (),
+}
+
+/// [`ask`], with the yes as a [`Yes`].
+pub fn affirmed(what: &str) -> Option<Yes> {
+    if ask(what) {
+        Some(Yes { _said: () })
+    } else {
+        None
+    }
 }
 
 /// Ask, and return whether the answer was yes.

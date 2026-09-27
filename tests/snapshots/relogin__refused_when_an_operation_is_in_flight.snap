@@ -1,0 +1,16 @@
+---
+source: tests/relogin.rs
+expression: "shown(&d, &m.f)"
+---
+
+--relogin: not logging out. 1 of 6 check(s) did not pass:
+  ok  switch   generation 0001 is current
+  NO  journal  <HOME>/.local/state/ricepilot/journal/current.toml exists: an operation is in flight and did not finish.
+               `ricepilot recover` first; a machine half way through something is not one to log in to
+  ok  rescue   <HOME>/.local/state/ricepilot/rescue.sh restores generation 0000 and passes `sh -n`
+  ok  links    3 link(s) are exactly what the plan said and what the ledger recorded
+  ok  lock     this ricepilot holds <HOME>/.run/ricepilot.lock, and it is still the file at that path
+  ok  session  inside a Wayland session (wayland-1) that uwsm manages: wayland-wm@hyprland.desktop.service is running
+
+nothing was run. the switch itself is complete: generation 0001 is what the next login
+starts. ricepilot ends a session only when every check above passes.

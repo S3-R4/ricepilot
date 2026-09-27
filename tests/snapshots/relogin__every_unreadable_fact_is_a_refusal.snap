@@ -1,0 +1,26 @@
+---
+source: tests/relogin.rs
+expression: s
+---
+  NO  switch   generations/current could not be read: <the error>
+  NO  journal  could not be read: <the error>
+  NO  rescue   the script for generation 0002 could not be worked out (<the error>), so /s/rescue.sh could not be compared with it
+               `sh -n` could not be run on /s/rescue.sh: <the error>
+               it is how you get back from a TTY if the next login does not come up
+  NO  links    the ledger could not be read: <the error>
+  NO  lock     /r/ricepilot.lock could not be checked: <the error>
+  NO  session  the Wayland socket could not be looked at: <the error>
+               systemd's record of running units could not be read (<the error>), and it is the one
+               read-only way ricepilot has to see that uwsm manages this session
+---
+  NO  switch   generations/current could not be read: <the error>
+  NO  journal  could not be read: <the error>
+  NO  rescue   /s/rescue.sh could not be read: <the error>
+  NO  links    /h/.config/a: the plan linked it to /p/a, and it could not be read: <the error>
+               /h/.config/b: the ledger has no row for it
+               /h/.config/c: the plan retired it, and the ledger still has a row for it
+               /h/.config/d: the plan linked it to /p/d, and nothing is there
+  ok  lock     this ricepilot holds /r/ricepilot.lock, and it is still the file at that path
+  NO  session  the Wayland socket could not be looked at: <the error>
+               systemd's record of running units could not be read (<the error>), and it is the one
+               read-only way ricepilot has to see that uwsm manages this session

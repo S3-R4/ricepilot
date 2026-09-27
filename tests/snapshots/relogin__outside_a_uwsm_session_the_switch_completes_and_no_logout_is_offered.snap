@@ -1,0 +1,59 @@
+---
+source: tests/relogin.rs
+expression: r.stdout
+---
+switch: to profile `new`
+
+observed:
+  owned link     <HOME>/.config/hypr
+  owned link     <HOME>/.config/foot
+  absent         <HOME>/.config/btop
+
+applying 9 operation(s):
+  stage link   <HOME>/.config/hypr.rp-tmp-0 -> <HOME>/rice/new/hypr
+  stage link   <HOME>/.config/foot.rp-tmp-1 -> <HOME>/rice/new/foot
+  exchange     <HOME>/.config/hypr <-> <HOME>/.config/hypr.rp-tmp-0
+  exchange     <HOME>/.config/foot <-> <HOME>/.config/foot.rp-tmp-1
+  create link  <HOME>/.config/btop -> <HOME>/rice/new/btop
+  to attic     <HOME>/.config/hypr.rp-tmp-0 -> <attic><HOME>/.config/hypr
+  to attic     <HOME>/.config/foot.rp-tmp-1 -> <attic><HOME>/.config/foot
+  fsync dir    <HOME>/.config
+  fsync dir    <HOME>/.local/state/ricepilot/attic/<TS>
+
+applied. this is generation 0001.
+
+displaced links are in:
+  <HOME>/.local/state/ricepilot/attic/<TS>
+nothing was removed.
+
+a blake3 manifest of the profile was recorded at:
+  <HOME>/.local/state/ricepilot/manifests/new.toml
+`ricepilot verify` compares against it.
+
+to undo this:
+  ricepilot rollback --commit            re-applies generation 0000
+  sh <HOME>/.local/state/ricepilot/rescue.sh   the same thing, from a TTY, without ricepilot
+
+this changed the filesystem, not the running session. log out and back in to see it:
+  uwsm stop
+
+never `hyprctl dispatch exit` and never kill Hyprland — `uwsm stop` is the clean
+logout. if the session does not come back, TTY F2–F6 and run the rescue script above.
+
+--relogin: not logging out. 1 of 6 check(s) did not pass:
+  ok  switch   generation 0001 is current
+  ok  journal  the switch's journal is retired: <HOME>/.local/state/ricepilot/journal/done-<TS>.toml
+  ok  rescue   <HOME>/.local/state/ricepilot/rescue.sh restores generation 0000 and passes `sh -n`
+  ok  links    3 link(s) are exactly what the plan said and what the ledger recorded
+  ok  lock     this ricepilot holds <HOME>/.run/ricepilot.lock, and it is still the file at that path
+  NO  session  WAYLAND_DISPLAY is not set: this ricepilot is not running inside a graphical session
+               (a TTY, ssh, a timer), and `uwsm stop` would end a session you are not looking at
+               DBUS_SESSION_BUS_ADDRESS is not set: uwsm asks systemd for the logout over the session
+               bus, and without one `uwsm stop` has nothing to ask
+               no uwsm compositor unit (`wayland-wm@….service`) is running for this user —
+               <HOME>/.run/systemd/units records none. this session is not managed by uwsm, and
+               `uwsm stop` is the only logout ricepilot runs: never `hyprctl dispatch exit`, never
+               a signal to Hyprland. log out the way you logged in
+
+nothing was run. the switch itself is complete: generation 0001 is what the next login
+starts. ricepilot ends a session only when every check above passes.

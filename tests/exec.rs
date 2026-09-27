@@ -65,7 +65,9 @@ fn every_allowlist_entry_is_exercised_or_excused() {
                  real binary only under RICEPILOT_LIVE_TESTS=1 (tests/verify_config_live.rs)"
             }
             Allowed::UwsmStop => {
-                "NOT exercised: ends the session; argv and gate asserted, never run"
+                "NOT exercised: ends the session. argv and environment asserted from the pure \
+                 uwsm_stop_invocation; --relogin driven up to the sandbox's refusal \
+                 (tests/relogin.rs); never run"
             }
         };
         let how = if what.reaches_the_session() {
@@ -295,11 +297,62 @@ fn git_status_refuses_a_path_that_is_relative_or_walks_up() {
 
 // ---- uwsm stop and Hyprland --verify-config: built, never run ----
 
-/// What `--relogin` will run, asserted without running it.
+/// What `--relogin` runs, asserted without running it: the invocation is a
+/// pure function of the environment, and it is the one `ops::exec::run`
+/// uses (D52, D58).
 #[test]
 fn uwsm_stop_is_built_by_absolute_path_and_never_run() {
     assert_eq!(Allowed::UwsmStop.program(), "uwsm");
     assert_eq!(exec::UWSM_STOP_ARGV, ["stop"]);
+
+    let session: &[(&str, &str)] = &[
+        ("HOME", "/home/u"),
+        ("XDG_RUNTIME_DIR", "/run/user/1000"),
+        ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus"),
+        // What the session has and uwsm must not be given.
+        ("WAYLAND_DISPLAY", "wayland-1"),
+        ("HYPRLAND_INSTANCE_SIGNATURE", "abc_123_456"),
+        ("LD_PRELOAD", "/nonexistent/libimpostor.so"),
+        ("PATH", "/home/u/.local/bin:/usr/bin"),
+        ("PYTHONPATH", "/home/u/impostor"),
+    ];
+    let lookup = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| std::ffi::OsString::from(v))
+        }
+    };
+    let inv = exec::uwsm_stop_invocation(&lookup(session));
+    let pairs = |v: &[(std::ffi::OsString, std::ffi::OsString)]| -> Vec<(String, String)> {
+        v.iter()
+            .map(|(k, v)| (k.to_string_lossy().into(), v.to_string_lossy().into()))
+            .collect()
+    };
+    assert_eq!(inv.program, "uwsm");
+    assert_eq!(inv.argv, ["stop"]);
+    assert_eq!(
+        pairs(&inv.env),
+        [
+            ("LC_ALL", "C"),
+            ("HOME", "/home/u"),
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus"),
+            ("PATH", "/usr/bin"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+    );
+    // With nothing to pass, only what is fixed.
+    let bare = exec::uwsm_stop_invocation(&lookup(&[]));
+    assert_eq!(
+        pairs(&bare.env),
+        [("LC_ALL", "C"), ("PATH", "/usr/bin")].map(|(k, v)| (k.to_string(), v.to_string()))
+    );
+    // And it is D52's policy for the entry, not a second copy of it.
+    for name in Allowed::UwsmStop.passes() {
+        assert!(inv.env.iter().any(|(k, _)| k == name), "{name} not passed");
+    }
     if let Some(at) = exec::locate(Allowed::UwsmStop).unwrap() {
         assert!(at.is_absolute());
         assert!(
@@ -344,26 +397,47 @@ fn source_lines_mentioning(needle: &str) -> Vec<String> {
     hits
 }
 
-/// The gate on the session-ending call is that its token cannot be made. The
-/// compile-fail doctest on `Relogin` proves no code outside `ops::exec` can
-/// build one; this proves `ops::exec` itself does not, and that nothing names
-/// the call. `--relogin` is the task that changes both, deliberately.
+/// The session-ending call is reachable along one path, and this holds the
+/// source text to it (D58). The `Relogin` token is written in exactly one
+/// place, its constructor `Relogin::after`, which is called in exactly one
+/// place, `cli/relogin.rs`, the only file besides `ops/exec.rs` that names the
+/// call. The constructor demands a `Cleared` and a `Yes`: a `Cleared` is
+/// written only in `cli/relogin.rs` (by the pre-flight, when every check
+/// passed), a `Yes` only in `cli/confirm.rs` (when the y/N was answered yes),
+/// and `confirm::affirmed` is called only from `cli/relogin.rs`. The
+/// `Completed` the pre-flight starts from is written only at the end of
+/// `cli/switch.rs`'s phase C. The compile-fail doctests on `Relogin` prove
+/// nothing outside the crate can do any of it.
 #[test]
-fn nothing_in_the_crate_can_reach_uwsm_stop_yet() {
-    let built: Vec<String> = source_lines_mentioning("_sealed")
-        .into_iter()
-        .filter(|l| !l.ends_with("_sealed: (),"))
-        .collect();
-    assert!(
-        built.is_empty(),
-        "a Relogin token is constructed: {built:#?}"
-    );
+fn uwsm_stop_is_reachable_only_through_the_relogin_preflight() {
+    let only = |needle: &str, keep: &dyn Fn(&str) -> bool, file: &str| {
+        let hits: Vec<String> = source_lines_mentioning(needle)
+            .into_iter()
+            .filter(|l| keep(l))
+            .collect();
+        assert_eq!(hits.len(), 1, "`{needle}`: {hits:#?}");
+        assert!(hits[0].starts_with(file), "`{needle}`: {hits:#?}");
+    };
+    let any = |_: &str| true;
+    // A definition or a signature names a type without making a value of it.
+    let made = |l: &str| !l.contains("struct ") && !l.contains("impl ") && !l.contains("fn ");
 
-    let named: Vec<String> = source_lines_mentioning("UwsmStop(")
-        .into_iter()
-        .filter(|l| !l.starts_with("ops/exec.rs:"))
-        .collect();
-    assert!(named.is_empty(), "Call::UwsmStop is named: {named:#?}");
+    only(
+        "_sealed",
+        &|l: &str| !l.ends_with("_sealed: (),"),
+        "ops/exec.rs:",
+    );
+    only("Relogin { _sealed: () }", &any, "ops/exec.rs:");
+    only("Relogin::after(", &any, "cli/relogin.rs:");
+    only(
+        "UwsmStop(",
+        &|l: &str| !l.starts_with("ops/exec.rs:"),
+        "cli/relogin.rs:",
+    );
+    only("Cleared {", &made, "cli/relogin.rs:");
+    only("Yes {", &made, "cli/confirm.rs:");
+    only("confirm::affirmed(", &any, "cli/relogin.rs:");
+    only("Completed {", &made, "cli/switch.rs:");
 }
 
 /// Likewise: the only place a `SandboxedConfig` is made is its constructor

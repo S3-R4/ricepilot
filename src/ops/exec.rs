@@ -46,10 +46,14 @@
 //! # The two entries that are not ordinary queries
 //!
 //! [`Call::UwsmStop`] ends the user's session. It needs a [`Relogin`] token,
-//! and in this build nothing can make one: the token has a private field and
-//! no constructor. `--relogin` will add the one constructor, behind its
-//! confirmation and its pre-flight; until then the call is unreachable by
-//! construction, not by convention.
+//! whose one constructor, [`Relogin::after`], is visible only inside the
+//! crate and demands two values nothing else can make: a
+//! [`crate::cli::relogin::Cleared`], which exists only once every
+//! precondition of D58 has been checked against the disk and the
+//! environment, and a [`crate::cli::confirm::Yes`], which exists only once a
+//! human answered the y/N with yes. The call is unreachable without both by
+//! construction, not by convention — and what it would run is built by the
+//! pure [`uwsm_stop_invocation`], so it can be asserted without being run.
 //!
 //! [`Call::HyprlandVerifyConfig`] takes a [`SandboxedConfig`], whose one
 //! constructor is [`SandboxedConfig::build`] in [`sandbox`].
@@ -99,8 +103,8 @@ pub const BIN_DIRS: &[&str] = &["/usr/bin", "/usr/local/bin"];
 /// hold an unbounded buffer (D52).
 pub const OUTPUT_CAP: usize = 1 << 20;
 
-/// The argv `uwsm stop` is run with. A constant, so what `--relogin` will do
-/// can be asserted without being able to do it.
+/// The argv `uwsm stop` is run with. A constant, so what `--relogin` does can
+/// be asserted without being able to do it.
 pub const UWSM_STOP_ARGV: &[&str] = &["stop"];
 
 /// The test sandbox (D56). While it is set, [`run`] refuses every entry that
@@ -267,11 +271,10 @@ impl SandboxedConfig {
 
 pub mod sandbox;
 
-/// Proof that `uwsm stop` has been asked for and confirmed.
+/// Proof that `uwsm stop` has been asked for, pre-flighted and confirmed.
 ///
-/// Has no constructor in this build, and the private field means none can be
-/// written outside this module. `--relogin` will add exactly one, behind its
-/// y/N and its pre-flight; until it does, [`Call::UwsmStop`] cannot be built.
+/// The private field means no code outside this module can write one, and
+/// this module writes exactly one, in [`Relogin::after`] (D58).
 ///
 /// The type is public, so it can be named:
 ///
@@ -279,10 +282,16 @@ pub mod sandbox;
 /// use ricepilot::ops::exec::{Relogin, SandboxedConfig};
 /// ```
 ///
-/// but it cannot be made, and neither can a sandboxed config:
+/// but it cannot be made from outside the crate — not by its fields, and not
+/// by its constructor, which is `pub(crate)` — and neither can a sandboxed
+/// config:
 ///
 /// ```compile_fail,E0451
 /// let _ = ricepilot::ops::exec::Relogin { _sealed: () };
+/// ```
+///
+/// ```compile_fail,E0624
+/// let _ = ricepilot::ops::exec::Relogin::after;
 /// ```
 ///
 /// ```compile_fail,E0451
@@ -291,6 +300,33 @@ pub mod sandbox;
 #[derive(Debug)]
 pub struct Relogin {
     _sealed: (),
+}
+
+impl Relogin {
+    /// The one constructor.
+    ///
+    /// Both arguments are proofs, not data. A
+    /// [`Cleared`](crate::cli::relogin::Cleared) is made only by
+    /// `cli::relogin`'s pre-flight, once it has found — on the disk and in the
+    /// environment, after the switch — that the switch completed and its
+    /// generation is current, the journal is retired, `rescue.sh` is the
+    /// script for the generation before and passes `sh -n`, every destination
+    /// is what the plan said and the ledger agrees, this process still holds
+    /// the lock on the file at the lock's path, and the process is inside a
+    /// session uwsm manages. The `Cleared` borrowed here is the one from the
+    /// check made *after* the answer. A [`Yes`](crate::cli::confirm::Yes) is
+    /// made only by `confirm`, from a y/N that defaults to no and that nothing
+    /// can skip (D47). Each has private fields and a single place that builds
+    /// it; `tests/exec.rs` holds that true of the source text.
+    ///
+    /// `pub(crate)`, so nothing outside ricepilot — no integration test, no
+    /// example — can call it at all.
+    pub(crate) fn after(
+        _cleared: &crate::cli::relogin::Cleared,
+        _yes: crate::cli::confirm::Yes,
+    ) -> Relogin {
+        Relogin { _sealed: () }
+    }
 }
 
 /// One invocation on the allowlist, with its arguments as typed values.
@@ -360,6 +396,22 @@ impl Call<'_> {
         })
     }
 
+    /// What this call would start: its arguments and its whole environment,
+    /// read from `get` (D52). Pure given `get`, and what [`run`] itself uses.
+    /// `uwsm stop` goes through [`uwsm_stop_invocation`], so the function a
+    /// test asserts is the function a real `--relogin` runs.
+    pub fn invocation(&self, get: &dyn Fn(&str) -> Option<OsString>) -> Result<Invocation> {
+        if let Call::UwsmStop(_) = self {
+            return Ok(uwsm_stop_invocation(get));
+        }
+        Ok(assemble(
+            self.allowed(),
+            self.argv()?,
+            self.fixed_env(),
+            get,
+        ))
+    }
+
     /// Variables set on the child beyond `LC_ALL=C` and [`Allowed::passes`].
     fn fixed_env(&self) -> Vec<(OsString, OsString)> {
         match self {
@@ -374,9 +426,7 @@ impl Call<'_> {
                 ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
                 ("GIT_OPTIONAL_LOCKS".into(), "0".into()),
             ],
-            // uwsm is a Python program that runs `systemctl`. It gets a fixed
-            // search path, not ricepilot's.
-            Call::UwsmStop(_) => vec![("PATH".into(), "/usr/bin".into())],
+            Call::UwsmStop(_) => uwsm_stop_fixed_env(),
             // Everything Hyprland could look for, inside the scratch copy:
             // `~` there is the mirror of the real home, and the runtime
             // directory — where a compositor's socket and log would go — is
@@ -422,6 +472,65 @@ impl Call<'_> {
             .unwrap_or_default();
         format!("`{} {args}`", self.allowed().program())
     }
+}
+
+/// What a child is started with, decided before anything is located or
+/// spawned: the program's file name (found later, by [`locate`]), the
+/// arguments after it, and its **whole** environment — the child gets these
+/// variables and no others, and starts in `/` (D52).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Invocation {
+    pub program: &'static str,
+    pub argv: Vec<OsString>,
+    pub env: Vec<(OsString, OsString)>,
+}
+
+/// `LC_ALL=C`, then each of [`Allowed::passes`] that `get` has, then the
+/// call's fixed variables. Later entries win, as they do on a `Command`.
+fn assemble(
+    what: Allowed,
+    argv: Vec<OsString>,
+    fixed: Vec<(OsString, OsString)>,
+    get: &dyn Fn(&str) -> Option<OsString>,
+) -> Invocation {
+    let mut env: Vec<(OsString, OsString)> = vec![("LC_ALL".into(), "C".into())];
+    for name in what.passes() {
+        if let Some(v) = get(name) {
+            env.push((OsString::from(name), v));
+        }
+    }
+    env.extend(fixed);
+    Invocation {
+        program: what.program(),
+        argv,
+        env,
+    }
+}
+
+/// uwsm is a Python program that talks to systemd over the session bus. It
+/// gets a fixed search path, not ricepilot's.
+fn uwsm_stop_fixed_env() -> Vec<(OsString, OsString)> {
+    vec![("PATH".into(), "/usr/bin".into())]
+}
+
+/// What `uwsm stop` would be started with, in the environment `get`
+/// describes. Pure, and it needs no [`Relogin`] — building the description
+/// of the call is not making it — so a test can assert exactly what
+/// `--relogin` would run, argv and environment, without being able to run it
+/// (D58). [`Call::invocation`] returns this for [`Call::UwsmStop`].
+///
+/// The environment is D52's policy for the entry: `LC_ALL=C`; `HOME`,
+/// `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` when set (uwsm finds the
+/// user's systemd through the bus, and the bus through those); `PATH=/usr/bin`.
+/// Nothing else — not `WAYLAND_DISPLAY`, not `HYPRLAND_INSTANCE_SIGNATURE`,
+/// not `LD_PRELOAD`.
+pub fn uwsm_stop_invocation(get: &dyn Fn(&str) -> Option<OsString>) -> Invocation {
+    assemble(
+        Allowed::UwsmStop,
+        UWSM_STOP_ARGV.iter().map(OsString::from).collect(),
+        uwsm_stop_fixed_env(),
+        get,
+    )
 }
 
 /// What a child did.
@@ -546,22 +655,14 @@ fn run_in(call: Call<'_>, limit: Duration, get: impl Fn(&str) -> Option<OsString
     if let Some(refusal) = sandbox_refuses(what, &get) {
         return Err(refusal);
     }
-    let args = call.argv()?;
+    let inv = call.invocation(&get)?;
     let Some(program) = locate(what)? else {
         return Err(not_installed(what));
     };
 
     let mut cmd = Command::new(&program);
-    cmd.args(&args)
-        .env_clear()
-        .env("LC_ALL", "C")
-        .current_dir("/");
-    for name in what.passes() {
-        if let Some(v) = get(name) {
-            cmd.env(name, v);
-        }
-    }
-    for (k, v) in call.fixed_env() {
+    cmd.args(&inv.argv).env_clear().current_dir("/");
+    for (k, v) in &inv.env {
         cmd.env(k, v);
     }
     let input = call.stdin().map(<[u8]>::to_vec);

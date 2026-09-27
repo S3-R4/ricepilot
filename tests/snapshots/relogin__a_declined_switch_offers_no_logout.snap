@@ -1,0 +1,16 @@
+---
+source: tests/relogin.rs
+expression: r.stdout
+---
+switch: to profile `new`
+
+observed:
+  owned link     <HOME>/.config/hypr
+  real directory <HOME>/.config/foot
+  absent         <HOME>/.config/btop
+
+declined. nothing has been changed.
+
+  [R4] <HOME>/.config/foot: is a real directory, not the link ricepilot owns. Something (typically a rice installer) replaced the link. Re-linking would discard whatever it wrote; run `ricepilot doctor` and decide deliberately.
+
+--relogin: the switch was declined, so no logout is offered.
