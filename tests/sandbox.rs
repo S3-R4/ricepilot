@@ -182,6 +182,34 @@ fn the_harness_panics_on_a_location_outside_the_sandbox() {
     );
 }
 
+/// A group directory that is a symlink out of the sandbox is caught before
+/// the case's tree is cleared, not after (red-team #2 finding 6). The link
+/// points at `/proc`, where nothing can be created or removed even by root,
+/// so a regression fails on some other panic rather than touching anything;
+/// the `R1:` in the message is what says the check came first.
+#[test]
+fn a_symlinked_group_is_refused_before_anything_is_cleared() {
+    let probe = common::fixture_root().join("escape-probe");
+    std::fs::create_dir_all(&probe).unwrap();
+    let link = probe.join("out");
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink("/proc", &link).unwrap();
+
+    let caught = std::panic::catch_unwind(|| Fixture::new_in("escape-probe/out", "case"));
+    let msg = match caught {
+        Ok(_) => panic!("a fixture was built through a symlink to /proc"),
+        Err(e) => e
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_default(),
+    };
+    assert!(
+        msg.starts_with("R1: the fixture home") && msg.contains("resolves to /proc/case/home"),
+        "{msg}"
+    );
+}
+
 // ---- what the binary does inside the sandbox ----
 
 fn cli(f: &Fixture, args: &[&str], env: &[(String, String)]) -> (i32, String) {

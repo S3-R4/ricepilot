@@ -71,13 +71,28 @@ pub fn assert_in_sandbox(what: &str, p: &Path) {
     );
 }
 
-/// Panic unless `p`, which must exist, resolves — through every symlink —
-/// to somewhere below the repository's own `target/fixtures`. Catches a
-/// `target` that is a symlink to somewhere else, which the lexical check
+/// Panic unless `p` resolves — through every symlink — to somewhere below
+/// the repository's own `target/fixtures`. Catches a `target`, or a group
+/// directory, that is a symlink to somewhere else, which the lexical check
 /// cannot see.
+///
+/// `p` need not exist yet: what does not exist cannot be a symlink, so the
+/// nearest part of it that does exist is resolved and the rest appended.
+/// That is what lets [`Fixture::new_in`] ask *before* it clears a case's
+/// tree rather than after — clearing it first would follow such a symlink
+/// out of the sandbox and empty whatever it points at. Something that
+/// exists and cannot be resolved (a dangling link) panics too.
 pub fn assert_resolves_in_sandbox(what: &str, p: &Path) {
     let repo = std::fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap();
-    let real = std::fs::canonicalize(p).unwrap();
+    let mut existing = p;
+    let mut rest = Vec::new();
+    while std::fs::symlink_metadata(existing).is_err() {
+        rest.push(existing.file_name().expect("a path below the repository"));
+        existing = existing.parent().expect("a path below the repository");
+    }
+    let real = std::fs::canonicalize(existing)
+        .unwrap_or_else(|e| panic!("R1: {what} {} cannot be resolved: {e}", p.display()));
+    let real = rest.iter().rev().fold(real, |acc, c| acc.join(c));
     assert!(
         real.starts_with(repo.join("target").join("fixtures")),
         "R1: {what} {} resolves to {}, outside {}/target/fixtures",
@@ -168,6 +183,10 @@ impl Fixture {
     pub fn new_in(group: &str, case: &str) -> Self {
         let home = fixture_root().join(group).join(case).join("home");
         Self::check_sandbox(&home);
+        // Where the tree really is, before anything in it is cleared: the
+        // lexical check above cannot see a symlinked `target` or group
+        // directory, and clearing through one would empty somewhere else.
+        assert_resolves_in_sandbox("the fixture home", &home);
         // Each case owns a stable directory, and that directory starts empty:
         // a crash-injection case is *defined* by the exact state it starts
         // from, so a leftover staged link from the previous run would make a
