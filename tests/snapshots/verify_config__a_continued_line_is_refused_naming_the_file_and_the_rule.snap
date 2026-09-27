@@ -1,0 +1,8 @@
+---
+source: tests/verify_config.rs
+expression: s
+---
+hypr config:
+  <HOME>/rice/new/hypr/hyprland.conf did not pass the sandboxed verify-config; the switch is declined (below).
+
+  [R5] <HOME>/rice/new/hypr/hyprland.conf: did not parse in a sandboxed verify-config run: it could not be copied into a sandbox, so Hyprland was not run on it: <HOME>/rice/new/hypr/keys.conf line 2: the line ends in `\`, which Hyprland may join to the next line. ricepilot reads a config one line at a time to strip `exec`, and will not run Hyprland on a config with a continued line anywhere in it (D67)

@@ -105,6 +105,19 @@ pub fn hypr_dest(home: &Path) -> PathBuf {
     home.join(".config/hypr")
 }
 
+/// The outcome for a config the sandbox would not copy: Hyprland was not
+/// run on it, and why. Public so the refusal can be snapshotted from the
+/// sandbox's own answer without a `Hyprland` installed.
+pub fn unsandboxed(config: PathBuf, why: &crate::hyprconf::Unsandboxable) -> Outcome {
+    Outcome::Failed {
+        config,
+        scratch: None,
+        detail: format!(
+            "it could not be copied into a sandbox, so Hyprland was not run on it: {why}"
+        ),
+    }
+}
+
 /// Run the pre-flight for a switch to `targets`, retiring `retire`.
 ///
 /// `state` is ricepilot's state directory and `id` names the scratch copy —
@@ -161,15 +174,7 @@ pub fn check(
     })?;
     let cfg = match built {
         Ok(cfg) => cfg,
-        Err(why) => {
-            return Ok(Some(Outcome::Failed {
-                config: conf,
-                scratch: None,
-                detail: format!(
-                    "it could not be copied into a sandbox, so Hyprland was not run on it: {why}"
-                ),
-            }))
-        }
+        Err(why) => return Ok(Some(unsandboxed(conf, &why))),
     };
 
     let ran = exec::run(Call::HyprlandVerifyConfig(&cfg))?;

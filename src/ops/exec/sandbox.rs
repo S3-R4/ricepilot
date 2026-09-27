@@ -340,6 +340,18 @@ fn post_check(ctx: &Context, copied: &[Copied]) -> Result<()> {
     for c in copied {
         let text = read::slurp(&c.copy)?;
         for (i, line) in text.split('\n').enumerate() {
+            // `sanitize` refuses a file with any continued line (D67), so
+            // every line here is read alone — as the checks below assume.
+            if hyprconf::continues(line) {
+                return Err(refused(
+                    &c.copy,
+                    &format!(
+                        "line {} ends in `\\`, which Hyprland may join to the next line, \
+                         after sanitizing. this is a bug in ricepilot, and Hyprland was not run",
+                        i + 1
+                    ),
+                ));
+            }
             if let Some(k) = hyprconf::stripped_keyword(line) {
                 return Err(refused(
                     &c.copy,
@@ -821,6 +833,70 @@ general {
         assert!(read::lstat_or_absent(&fx.state().join("verify"))
             .unwrap()
             .is_none());
+    }
+
+    /// A continued line in a *sourced* file — here one outside the profile,
+    /// which the sandbox copies too — refuses the whole config: `ex\` joined
+    /// to `ec-once = …` is an `exec-once` line no physical line spells (D67).
+    /// The refusal names the file the user would edit, its line, and the
+    /// rule; nothing is written and the stand-in is never run.
+    #[test]
+    fn a_continued_line_in_a_sourced_file_declines_before_anything_runs() {
+        let fx = Fx::new("continued");
+        fx.file(
+            "rice/new/hypr/hyprland.conf",
+            "general {\n}\nsource = ~/.config/caelestia/foreign.conf\n",
+        );
+        fx.file(
+            "home/.config/caelestia/foreign.conf",
+            "decoration {\n}\nex\\\nec-once = : > MARK/joined\n",
+        );
+        use_fake_hyprland(Some(fx.fake()));
+        let Some(Outcome::Failed {
+            scratch, detail, ..
+        }) = fx.check()
+        else {
+            panic!("a config with a continued line was sandboxed");
+        };
+        assert_eq!(scratch, None);
+        assert!(
+            detail.contains(&format!(
+                "{} line 3: the line ends in `\\`",
+                fx.p("home/.config/caelestia/foreign.conf").display()
+            )),
+            "{detail}"
+        );
+        assert!(detail.contains("(D67)"), "{detail}");
+        assert!(detail.contains("Hyprland was not run"), "{detail}");
+        assert!(fx.lines("fake/argv").is_empty(), "the stand-in was run");
+        assert!(fx.markers().is_empty(), "{:?}", fx.markers());
+        assert!(read::lstat_or_absent(&fx.state().join("verify"))
+            .unwrap()
+            .is_none());
+    }
+
+    /// The post-check does not trust `sanitize` to have refused continued
+    /// lines: a copy on disk with one is refused as a bug.
+    #[test]
+    fn the_post_check_refuses_a_continued_line_on_disk() {
+        let fx = Fx::new("postcheck");
+        let copy = fx.file("scratch/root/x.conf", "ex\\\nec = : > MARK/x\n");
+        let ctx = Context {
+            home: fx.home(),
+            mirror: fx.p("scratch/root"),
+            links: vec![],
+            absent: vec![],
+        };
+        let err = post_check(
+            &ctx,
+            &[Copied {
+                real: fx.p("x.conf"),
+                copy,
+                stripped: vec![],
+            }],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("line 1 ends in `\\`"), "{err}");
     }
 
     /// Things the copier refuses: a cycle, a symlinked config, a glob that

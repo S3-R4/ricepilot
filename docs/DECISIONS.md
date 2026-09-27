@@ -1193,9 +1193,9 @@ or is `plugin` (a shared object to load; whether `--verify-config` loads it is
 not visible from here). The keyword is looked for behind any leading
 whitespace, `#`, byte-order mark or other non-alphanumeric noise and compared
 case-insensitively, so `exec=x`, `\texec-once\t=`, `EXEC-ONCE`,
-`general:exec` and even a commented-out `# exec-once` are blanked; a line
-continued with `\` is blanked whole, and a continuation line that itself
-looks like exec is blanked whatever it continues. Blanking a line Hyprland
+`general:exec` and even a commented-out `# exec-once` are blanked. (A line
+continued with `\` was blanked whole here at first; since D67 a config with
+any continued line is refused instead.) Blanking a line Hyprland
 would not have run costs a less thorough syntax check; keeping one it would
 have run costs a process nobody asked for, so every ambiguity is resolved
 towards blanking. Lines are replaced by empty lines, never removed, so the
@@ -1226,8 +1226,8 @@ that does not exist is left for Hyprland to report.
 **What is refused rather than approximated.** A `source` whose resolution
 ricepilot cannot be sure of is not sandboxed, and a config that is not
 sandboxed is not run — the switch declines with the reason: a keyword built
-from a variable (`foo$x = …`), a `source` or variable definition that is or
-might be continued across lines, an undefined `$name` in a `source` path
+from a variable (`foo$x = …`, or since D67 any line with no `=` that uses
+one), any line ending in `\` (D67), an undefined `$name` in a `source` path
 (other than `$HOME`), `..` (lexical and kernel resolution disagree once the
 destination is a symlink), `~user`, `[…]`/`{…}` globs, a sourced symlink or a
 glob matching a directory, a cycle, more than 256 files, 32 levels or 1 MiB
@@ -1238,7 +1238,8 @@ a check that passed.
 
 **The post-check.** After writing, `build` re-reads every file it wrote and
 refuses to return a `SandboxedConfig` if any line still reads as an
-exec-family keyword or any `source` names a path outside the mirror — the
+exec-family keyword, still ends in `\` (D67), or any `source` names a path
+outside the mirror — the
 same detector applied to what is on the disk, not trust in the rewriter.
 
 **The child's environment.** `env_clear()` (D52), then `HOME` and
@@ -2244,3 +2245,54 @@ or links, none removes, and it tells the reader not to run `gc --commit`
 while recovering. What was not tried — `uwsm stop` and
 `loginctl terminate-session` ending a real session, Hyprland's safe mode,
 SDDM's return to the greeter, the log locations — is listed at its end.
+
+## D67 — A config with any line ending in `\` is not sandboxed, and so not run
+
+*M5, red-team #2 finding 1.* D55 strips `exec` one physical line at a time.
+hyprlang (0.6.8 is what this machine has) joins a line ending in `\` to the
+next before it reads the keyword, so
+
+    ex\
+    ec-once = …
+
+is an `exec-once` line that no physical line spells: the stripper saw `ex`
+and `ec-once`, kept both, and the real Hyprland would have forked the
+command on its second parse pass. D55's continuation handling only covered a
+line that *already* looked like `exec` being continued, or continuing into
+one.
+
+**Refused, not modelled.** Modelling the join means knowing whether hyprlang
+joins before or after it removes comments, whether trailing whitespace or a
+`\r` still counts, what `\\` at the end of a line means, and whether that
+holds in every version a user might have. Getting any of those wrong is a
+process nobody asked for; refusing costs a user with a continued line a
+verify-config they can get back by joining it. So `hyprconf::sanitize`
+refuses a file in which any line — read either way: its whole text, or its
+code before a `#` comment, trailing whitespace ignored — ends in `\`. The
+check runs over the whole file before the first line is sanitized and
+before any `source` is followed, so nothing is copied. It applies to every
+file the sandbox copies, sourced ones and ones outside the profile included,
+since they all go through `sanitize`. The refusal is
+`Unsandboxable::Continued`; it names the file the user would edit (not its
+post-switch path), the line, and this D, and `switch` declines with
+`Refusal::VerifyConfigFailed` [R5] as for any other unsandboxable config.
+The post-check refuses a continued line on disk too, as a bug.
+
+**The other ways a keyword could hide, checked while here.** Leading
+whitespace, `#`, byte-order marks and other non-alphanumeric noise, `exec=`
+without spaces, mixed case and a category prefix were already stripped
+(D55's detector is case-insensitive and denoises; unit-tested). A keyword
+containing a variable (`foo$x =`) was already refused. New: a line with no
+`=` that uses a variable (`$cmd` alone, `$cat {`) is refused as
+`VariableKeyword` too — hyprlang is not observed to expand variables outside
+a value, but whether a bare `$cmd` whose value is `exec-once = …` would
+become that line is exactly the kind of thing D55 says not to guess. `##`
+(an escaped `#`) cannot hide a keyword, since the detector reads the whole
+line comment included. A `$name` *definition* (`$E = exec`) stays allowed:
+it defines a variable, and a variable only reaches a keyword through a line
+that is now refused.
+
+What remains unverified: the refusal set is from reading hyprlang's
+behaviour, not from running the real parser against each case (R1 — the
+real `Hyprland` is not run here outside `RICEPILOT_LIVE_TESTS=1`).
+

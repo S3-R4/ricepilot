@@ -35,6 +35,16 @@
 //!
 //! Stripped lines are replaced by empty lines, never removed, so every line
 //! number Hyprland reports about the copy is a line number in the original.
+//!
+//! # Lines are physical lines, because continued ones are refused
+//!
+//! hyprlang joins a line ending in `\` to the next one before it reads a
+//! keyword, so `ex\` followed by `ec = …` is an `exec` line that no single
+//! physical line spells. Rather than model the join — when it happens
+//! relative to comment removal, whether trailing space counts, what `\\`
+//! means — any file with a line whose text, or whose code before a comment,
+//! ends in `\` is not sandboxed at all ([`Unsandboxable::Continued`], D67).
+//! Every other rule here can then treat one physical line as one line.
 
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
@@ -116,12 +126,13 @@ impl Context {
 /// is one it cannot check, and a check that could not be done is not passed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unsandboxable {
-    /// A keyword containing `$` somewhere other than its start: whether
-    /// Hyprland would expand it into a keyword — `exec-once`, say — is not
-    /// something to guess about.
+    /// A keyword containing `$` somewhere other than its start, or a line
+    /// with no `=` that mentions a variable: whether Hyprland would expand it
+    /// into a keyword — `exec-once`, say — is not something to guess about.
     VariableKeyword { file: PathBuf, line: usize },
-    /// A `source` or variable definition that continues onto the next line,
-    /// or sits where a continuation might put it.
+    /// A line ending in `\` — in its text, or in its code before a comment —
+    /// which hyprlang may join to the next line, so that no physical line
+    /// shows the keyword Hyprland reads (D67).
     Continued { file: PathBuf, line: usize },
     /// A `$name` in a `source` path that is neither a variable defined
     /// earlier in the config nor `$HOME`.
@@ -170,14 +181,15 @@ impl fmt::Display for Unsandboxable {
         match self {
             Unsandboxable::VariableKeyword { file, line } => write!(
                 f,
-                "{}: a keyword built from a variable. ricepilot cannot tell whether it would \
-                 expand to `exec`, so it did not run Hyprland on it",
+                "{}: a keyword or line built from a variable. ricepilot cannot tell whether it \
+                 would expand to `exec`, so it did not run Hyprland on it",
                 at(file, line)
             ),
             Unsandboxable::Continued { file, line } => write!(
                 f,
-                "{}: a `source` or variable definition that is, or may be, continued across \
-                 lines. ricepilot rewrites those, and will not rewrite half of one",
+                "{}: the line ends in `\\`, which Hyprland may join to the next line. \
+                 ricepilot reads a config one line at a time to strip `exec`, and will not \
+                 run Hyprland on a config with a continued line anywhere in it (D67)",
                 at(file, line)
             ),
             Unsandboxable::UnknownVariable { file, line, name } => write!(
@@ -300,9 +312,10 @@ pub fn stripped_keyword(line: &str) -> Option<String> {
     None
 }
 
-/// Whether a physical line continues onto the next. Either reading counts:
-/// the `\` at the end of the code, or at the end of the whole line.
-fn continues(line: &str) -> bool {
+/// Whether a physical line may continue onto the next. Either reading
+/// counts: the `\` at the end of the code, or at the end of the whole line,
+/// trailing whitespace (a `\r` included) ignored either way.
+pub fn continues(line: &str) -> bool {
     line.trim_end().ends_with('\\') || code_of(line).trim_end().ends_with('\\')
 }
 
@@ -345,39 +358,35 @@ pub fn sanitize(
     on_source: &mut dyn FnMut(&SourceRequest, &mut Vars) -> Result<(), Unsandboxable>,
 ) -> Result<Sanitized, Unsandboxable> {
     let lines: Vec<&str> = text.split('\n').collect();
+    // Before anything else — before a `source` is followed — so a file with a
+    // continued line anywhere in it is refused whole (D67).
+    if let Some(i) = lines.iter().position(|l| continues(l)) {
+        return Err(Unsandboxable::Continued {
+            file: file.to_path_buf(),
+            line: i + 1,
+        });
+    }
     let mut out: Vec<String> = Vec::with_capacity(lines.len());
     let mut stripped = Vec::new();
-    // Set while the previous physical line continued onto this one.
-    let mut continuation_of_stripped: Option<String> = None;
-    let mut in_continuation = false;
 
     for (i, line) in lines.iter().enumerate() {
         let n = i + 1;
-        let was_continuation = in_continuation;
-        in_continuation = continues(line);
 
         if let Some(keyword) = stripped_keyword(line) {
             stripped.push(Stripped { line: n, keyword });
             out.push(String::new());
-            continuation_of_stripped = in_continuation.then(|| "(continued)".to_string());
             continue;
         }
-        if was_continuation {
-            if let Some(k) = &continuation_of_stripped {
-                stripped.push(Stripped {
-                    line: n,
-                    keyword: k.clone(),
-                });
-                out.push(String::new());
-                if !in_continuation {
-                    continuation_of_stripped = None;
-                }
-                continue;
-            }
-        }
-        continuation_of_stripped = None;
 
         let Some(kv) = key_value(line) else {
+            // No `=`: a category line, `}`, a blank or a comment. One that
+            // uses a variable could be expanded into anything.
+            if code_of(line).contains('$') {
+                return Err(Unsandboxable::VariableKeyword {
+                    file: file.to_path_buf(),
+                    line: n,
+                });
+            }
             out.push((*line).to_string());
             continue;
         };
@@ -393,13 +402,6 @@ pub fn sanitize(
             out.push((*line).to_string());
             continue;
         }
-        if was_continuation || in_continuation {
-            return Err(Unsandboxable::Continued {
-                file: file.to_path_buf(),
-                line: n,
-            });
-        }
-
         let value = &line[kv.value.0..kv.value.1];
         if is_var {
             let name = kv.key[1..].trim();
@@ -700,7 +702,6 @@ mod tests {
             "Exec = touch /x",
             "exec-once = touch /x # with a comment",
             "exec-once = touch /x ## not a comment # a comment",
-            "exec-once = touch /x \\",
             "# exec-once = touch /x",
             "## exec-once = touch /x",
             "\u{feff}exec-once = touch /x",
@@ -756,14 +757,76 @@ mod tests {
         assert_eq!(s.stripped[0].line, 2);
     }
 
-    /// A continued exec line is stripped whole, and a continuation line that
-    /// itself looks like exec is stripped whatever it continues.
+    /// hyprlang joins a line ending in `\\` to the next, which can build a
+    /// keyword no physical line spells. Any such line, anywhere in the file,
+    /// in either reading, is refused before a single `source` is followed —
+    /// and it names the first continued line (D67).
     #[test]
-    fn continued_lines_are_stripped_whole() {
-        let (s, _) = run("exec-once = one \\\n  two \\\n  three\nkeep = 1\n");
-        assert_eq!(s.text, "\n\n\nkeep = 1\n");
-        let (s, _) = run("bind = a, \\\nexec-once = x\nkeep = 1\n");
-        assert_eq!(s.text, "bind = a, \\\n\nkeep = 1\n");
+    fn any_continued_line_refuses_the_whole_file() {
+        let cases = [
+            // The attack: `exec` split across the join.
+            ("ex\\\nec = touch /x\n", 1),
+            ("e\\\nx\\\nec-once = touch /x\n", 1),
+            // Hidden behind a value, a comment, trailing space, a CR.
+            ("keep = 1\nbind = a, \\\nexec-once = x\n", 2),
+            ("a = 1 \\ # a comment\nexec = x\n", 1),
+            ("# just a comment \\\nexec = x\n", 1),
+            ("a = 1 \\   \nb = 2\n", 1),
+            ("a = 1 \\\r\nb = 2\r\n", 1),
+            ("a = 1 \\\\\nb = 2\n", 1),
+            ("exec-once = one \\\n  two\n", 1),
+            ("source = ~/.config/hypr/a.conf \\\n  more\n", 1),
+            // At the very end, with nothing to join to: refused all the same.
+            ("a = 1\nb = 2 \\", 2),
+        ];
+        for (text, line) in cases {
+            let mut followed = 0;
+            let got = sanitize(
+                &format!("source = /etc/first.conf\n{text}"),
+                Path::new("/home/u/.config/hypr/hyprland.conf"),
+                &ctx(),
+                &mut Vars::default(),
+                &mut |_, _| {
+                    followed += 1;
+                    Ok(())
+                },
+            );
+            match got {
+                Err(Unsandboxable::Continued { line: l, ref file }) => {
+                    assert_eq!(l, line + 1, "{text:?}");
+                    assert_eq!(file, Path::new("/home/u/.config/hypr/hyprland.conf"));
+                }
+                other => panic!("{text:?} was not refused as continued: {other:?}"),
+            }
+            assert_eq!(
+                followed, 0,
+                "{text:?}: a source was followed before refusing"
+            );
+        }
+        // A backslash that does not end the line is not a continuation.
+        let (s, _) = run("bind = SUPER, B, exec, a\\b\n");
+        assert_eq!(s.text, "bind = SUPER, B, exec, a\\b\n");
+    }
+
+    /// A variable can only be expanded where it cannot become a keyword:
+    /// in a value. A keyword or a line with no `=` that uses one is refused.
+    #[test]
+    fn a_variable_where_a_keyword_could_be_is_refused() {
+        for (text, line) in [
+            ("foo$x = 1\n", 1),
+            ("$cmd = exec-once = touch /x\n$cmd\n", 2),
+            ("  $cmd  \n", 1),
+            ("$cat {\n}\n", 1),
+            ("general:$k = 1\n", 1),
+        ] {
+            match refused(text) {
+                Unsandboxable::VariableKeyword { line: l, .. } => assert_eq!(l, line, "{text:?}"),
+                other => panic!("{text:?}: {other:?}"),
+            }
+        }
+        // In a value, or in a comment, it is fine.
+        let (s, _) = run("$t = foot\nbind = SUPER, T, exec, $t\n# uses $t\n");
+        assert!(s.stripped.is_empty());
     }
 
     #[test]
@@ -882,12 +945,8 @@ mod tests {
             Unsandboxable::VariableKeyword { line: 1, .. }
         ));
         assert!(matches!(
-            refused("source = ~/.config/hypr/a.conf \\\n  more\n"),
-            Unsandboxable::Continued { line: 1, .. }
-        ));
-        assert!(matches!(
             refused("bind = a \\\nsource = /etc/x.conf\n"),
-            Unsandboxable::Continued { line: 2, .. }
+            Unsandboxable::Continued { line: 1, .. }
         ));
         assert!(matches!(
             refused("source = $nope/x.conf\n"),

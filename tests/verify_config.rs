@@ -219,3 +219,50 @@ fn an_unsandboxable_config_is_refused_without_running_anything() {
         assert!(out.contains("was NOT checked"), "{out}");
     }
 }
+
+/// A line ending in `\` anywhere in the config — here in a sourced file —
+/// is refused by the sandbox before it would run Hyprland (D67), and the
+/// refusal the user sees names the file, the line and the rule. Built from
+/// the sandbox's own answer, so it is the same text whether or not
+/// `Hyprland` is installed; nothing here runs it.
+#[test]
+fn a_continued_line_is_refused_naming_the_file_and_the_rule() {
+    let f = with_hypr(
+        "verify_continued",
+        &[
+            ("hyprland.conf", "source = ./keys.conf\n"),
+            (
+                "keys.conf",
+                "bind = SUPER, Q, killactive\nex\\\nec-once = touch /nonexistent/never\n",
+            ),
+        ],
+    );
+    let home = f.home.clone();
+    let why = SandboxedConfig::build(&sandbox::Request {
+        home: &home,
+        entry: &home.join(".config/hypr/hyprland.conf"),
+        links: &[(home.join(".config/hypr"), f.path("rice/new/hypr"))],
+        absent: &[],
+        parent: &f.state().join("verify"),
+        id: "continued",
+    })
+    .unwrap()
+    .expect_err("a config with a continued line was sandboxed");
+    assert!(
+        ricepilot::ops::read::lstat_or_absent(&f.state().join("verify"))
+            .unwrap()
+            .is_none(),
+        "a refused config left a scratch copy"
+    );
+
+    let o = ricepilot::hyprverify::unsandboxed(f.path("rice/new/hypr/hyprland.conf"), &why);
+    let mut s = render::hypr_check(Some(&o));
+    let (file, detail) = o.failure().unwrap();
+    s.push_str(&render::refusal_list(&[Refusal::VerifyConfigFailed {
+        file,
+        detail,
+    }]));
+    let s = redact(&s, &f);
+    assert!(s.contains("keys.conf line 2"), "{s}");
+    insta::assert_snapshot!(s);
+}
