@@ -982,3 +982,90 @@ says this, rather than claiming ricepilot never rewrites it.
 The regression test is the sequence, not the mechanism: adopt, then `plan`
 must read the destination as an owned link with nothing to do, and
 `switch --commit` must leave the link exactly where adopt put it.
+
+## D52 — How `ops::exec` starts a child: typed calls, absolute paths, an empty environment, limits
+
+*M5.* `ops::exec::run` is the first code in the crate that can start any
+program other than `/bin/sh -n`, and one entry on its list (`uwsm stop`) ends
+the user's session. Four choices, each made so the allowlist is closed by
+construction rather than by the discipline of its callers.
+
+**A caller passes a typed `Call`, not an argv.** The M0 stub was
+`run(Allowed, &[&str])`, which would have made `run(Allowed::Hyprctl,
+&["dispatch", "exit"])` a legal call to an allowlisted program. Each `Call`
+variant now builds its own argument vector from typed fields: `hyprctl`
+takes a `HyprctlQuery` whose only value is `Version`; `git` is always
+`status --porcelain=v1`; `pacman` is always `-Q -- <one name>`. What a
+caller *does* supply is checked before anything is located or spawned: a
+package name must be a makepkg name (ASCII alphanumerics and `@._+-`, not
+starting with `-` or `.`), so a `requires` entry of `--config=/x` never
+reaches pacman, and `--` is passed as well; a repository must be an absolute
+path free of `..`. `hyprctl dispatch submap reset`, which DESIGN §8 mentions,
+is deliberately *not* a variant: it follows a live reload, v1 has none, and
+the only thing it could do today is change the running session.
+
+**Binaries by absolute path, `PATH` never consulted.** Each is found by
+`lstat` in `/usr/bin` then `/usr/local/bin`, as `rescue.rs` finds its three.
+`/bin` is not searched: on Arch it is a symlink to `usr/bin`, and
+`ops::read` refuses a symlinked intermediate component (D9), so it would
+contribute a refusal and nothing else. `sh` stays at `/bin/sh`, the one path
+POSIX names, and is `exec`'d through that link rather than looked up. A
+missing binary is a refusal naming the directories searched.
+`tests/exec_env.rs` puts an impostor for every allowlisted name first on
+`PATH` and proves none of them runs.
+
+**Every child gets an empty environment, on purpose.** `env_clear()`, then
+`LC_ALL=C` (so anything parsed — pacman's "was not found" — is in the one
+locale whose messages do not change), then only what the call cannot work
+without, passed through by name: `hyprctl` gets `XDG_RUNTIME_DIR` and
+`HYPRLAND_INSTANCE_SIGNATURE` to find the compositor's socket; `uwsm stop`
+gets `HOME`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS` and a fixed
+`PATH=/usr/bin` because it is a Python program that talks to systemd;
+`Hyprland --verify-config` gets nothing, and above all not the instance
+signature. `git status` gets no `HOME` and `GIT_CONFIG_NOSYSTEM=1`, so no
+global or system config is read, plus `GIT_CEILING_DIRECTORIES` set to the
+repository's parent so a directory that is not a repository is not answered
+for by the one above it — the fixture tree lives inside ricepilot's own
+checkout, so this is tested against exactly that case. Every child starts in
+`/`, so none inherits ricepilot's working directory. Nothing else of
+ricepilot's environment — `LD_PRELOAD`, `GIT_DIR`, `GIT_CONFIG_PARAMETERS` —
+reaches a child; the same test sets all three and shows they have no effect.
+
+`git status` also runs with `--no-optional-locks` and `-c
+core.fsmonitor=false`. Without the first it refreshes and rewrites
+`.git/index` — a write into the user's clone, which the fixture test
+observes plain `git status` doing and asserts ricepilot's does not. Without
+the second, a repository can name a program for status to run. What remains
+is a clean filter from the repository's *own* `.git/config`, which `status`
+can invoke on a racily-clean file; it is the repository owner's own
+configuration, and there is no general way to switch filters off from the
+command line. Recorded here rather than claimed away.
+
+**Timeouts and an output cap.** std has no wait-with-timeout, so `run`
+polls `try_wait` every 5 ms and kills the child at its deadline: `sh -n`
+and `pacman -Q` 10 s, `hyprctl` 5 s, `git status` 60 s (a cold cache on a
+large tree), `Hyprland --verify-config` 30 s (it parses twice), `uwsm stop`
+60 s. Every pipe is serviced by its own thread so a child that fills stderr
+while ricepilot writes its stdin cannot deadlock the pair. At most 1 MiB per
+stream is kept; the rest is read and discarded, so the child never blocks,
+and `Ran::truncated` says so — a truncated answer is not a complete one and
+a caller comparing output must treat it as unknown. After the child exits
+its pipes get 500 ms; a grandchild holding one open is abandoned rather than
+waited for. A timeout is an `Io` error (exit 4), not a refusal: nothing was
+decided, something failed. A non-zero *exit*, on the other hand, is not an
+error at all — `pacman -Q` exiting 1 is the answer "not installed" — and
+`hyprctl` exits 0 even when it reached no compositor, so its callers read
+what it said rather than its status.
+
+**The session-ending call cannot be built yet.** `Call::UwsmStop` carries a
+`Relogin` token with a private field and no constructor, so no code outside
+`ops::exec` can make one (a `compile_fail` doctest proves it) and
+`ops::exec` itself does not (`tests/exec.rs` fails if anything in `src/`
+constructs one or names the call). `--relogin` is the task that adds the
+single constructor, behind its confirmation and its pre-flight. The same
+shape gates `Call::HyprlandVerifyConfig`, which takes a `SandboxedConfig`
+that only the verify-config sandbox — the next task — will be able to make,
+so "run verify-config on the real config" is not a mistake anyone can type.
+Neither has been run: `uwsm stop` because it ends the session, and
+verify-config because it has no sandbox yet. The argv `uwsm stop` will be
+run with is a constant, asserted in a test.

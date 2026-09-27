@@ -1,0 +1,24 @@
+---
+source: tests/exec.rs
+expression: s
+---
+a requires entry that could be read as an option
+  exit 2  refusing: is not a package name (ASCII letters, digits and `@._+-`, not starting with `-` or `.`), so it was not passed to `pacman -Q` (-Syu) [R3]
+
+git status on a relative path
+  exit 2  refusing: `git status` is only run on an absolute path free of `..` (relative/repo) [R3]
+
+PacmanQuery not installed
+  exit 2  refusing: `pacman` is not installed in any of /usr/bin, /usr/local/bin. ricepilot runs a subprocess only by absolute path and does not look anywhere else — `PATH` is not consulted (pacman) [R3]
+
+Hyprctl not installed
+  exit 2  refusing: `hyprctl` is not installed in any of /usr/bin, /usr/local/bin. ricepilot runs a subprocess only by absolute path and does not look anywhere else — `PATH` is not consulted (hyprctl) [R3]
+
+HyprlandVerifyConfig not installed
+  exit 2  refusing: `Hyprland` is not installed in any of /usr/bin, /usr/local/bin. ricepilot runs a subprocess only by absolute path and does not look anywhere else — `PATH` is not consulted (Hyprland) [R3]
+
+UwsmStop not installed
+  exit 2  refusing: `uwsm` is not installed in any of /usr/bin, /usr/local/bin. ricepilot runs a subprocess only by absolute path and does not look anywhere else — `PATH` is not consulted (uwsm) [R3]
+
+GitStatus not installed
+  exit 2  refusing: `git` is not installed in any of /usr/bin, /usr/local/bin. ricepilot runs a subprocess only by absolute path and does not look anywhere else — `PATH` is not consulted (git) [R3]

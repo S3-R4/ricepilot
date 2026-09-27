@@ -48,9 +48,11 @@ installer. Where an action requires one of these, ricepilot prints the exact
 command for a human to run and stops.
 
 *Enforced by*: `src/ops/exec.rs` holds a closed allowlist of subprocesses
-(`pacman -Q`, `hyprctl`, `Hyprland --verify-config` on a sandboxed copy,
-`uwsm stop`, `git status`); the ops-boundary grep prevents any other module
-spawning a process at all.
+(`sh -n`, `pacman -Q`, `hyprctl version`, `Hyprland --verify-config` on a
+sandboxed copy, `uwsm stop`, `git status`); callers pass a typed call, never
+an argument vector, and every child is started by absolute path with an
+empty environment ([DECISIONS.md](DECISIONS.md) D52). The ops-boundary grep
+prevents any other module spawning a process at all.
 
 ## R4 — Dry-run by default, pre-flight before mutation, journal before effect
 

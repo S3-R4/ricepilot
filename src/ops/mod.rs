@@ -14,7 +14,8 @@
 //! * [`exec`]   — the closed allowlist of subprocesses.
 //! * [`lock`]   — `flock(LOCK_EX|LOCK_NB)` held for the process lifetime.
 //!
-//! `read`, `mutate` and `lock` landed in M2; `exec` is M5.
+//! `read`, `mutate` and `lock` landed in M2; `exec` has `sh -n` from M3 and
+//! the rest of its allowlist from M5 (D52).
 
 pub mod exec;
 pub mod lock;
