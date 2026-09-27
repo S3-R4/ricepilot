@@ -5,7 +5,7 @@ expression: "shown(&d, &m.f)"
 
 --relogin: not logging out. 1 of 6 check(s) did not pass:
   ok  switch   generation 0002 is current
-  ok  journal  the switch's journal is retired: <HOME>/.local/state/ricepilot/journal/done-<TS>-1.toml
+  ok  journal  the switch's journal is retired: <HOME>/.local/state/ricepilot/journal/done-<TS>.toml
   ok  rescue   <HOME>/.local/state/ricepilot/rescue.sh restores generation 0001 and passes `sh -n`
   NO  links    <HOME>/.config/btop: the plan retired it into the attic, and it is a real directory
   ok  lock     this ricepilot holds <HOME>/.run/ricepilot.lock, and it is still the file at that path

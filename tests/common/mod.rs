@@ -318,3 +318,27 @@ pub fn undate(s: &str) -> String {
     }
     out
 }
+
+/// [`undate`], and the `-<n>` that `journal::unique_id` appends after a
+/// timestamp when two operations start in the same second (D40). Whether a
+/// second command lands in the first one's second is a race with the wall
+/// clock, so for a snapshot of several commands in a row the suffix is not
+/// part of what is reviewed; `tests/journal.rs` tests D40 itself.
+pub fn undate_ids(s: &str) -> String {
+    let dated = undate(s);
+    let mut out = String::with_capacity(dated.len());
+    let mut rest = dated.as_str();
+    while let Some(i) = rest.find("<TS>-") {
+        out.push_str(&rest[..i + "<TS>".len()]);
+        let after = &rest[i + "<TS>-".len()..];
+        let digits = after.chars().take_while(char::is_ascii_digit).count();
+        rest = if digits > 0 {
+            &after[digits..]
+        } else {
+            out.push('-');
+            after
+        };
+    }
+    out.push_str(rest);
+    out
+}

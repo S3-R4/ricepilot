@@ -28,7 +28,7 @@ use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use common::{redact, switching, undate, Fixture, SANDBOX_ROOT};
+use common::{redact, switching, undate_ids, Fixture, SANDBOX_ROOT};
 use ricepilot::cli::paths::Paths;
 use ricepilot::cli::relogin::{self, Check, Declined};
 use ricepilot::cli::switch::{Completed, Ended};
@@ -85,7 +85,7 @@ struct Run {
 }
 
 fn tidy(s: &str, f: &Fixture) -> String {
-    undate(&redact(s, f))
+    undate_ids(&redact(s, f))
 }
 
 /// Run the binary with `extra` added to the fixture's environment and
