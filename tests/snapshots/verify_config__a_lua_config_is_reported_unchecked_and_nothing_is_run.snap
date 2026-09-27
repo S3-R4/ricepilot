@@ -1,0 +1,18 @@
+---
+source: tests/verify_config.rs
+expression: out
+---
+plan: switch to profile `new`
+
+observed:
+  absent         <HOME>/.config/hypr
+
+hypr config:
+  <HOME>/rice/new/hypr/hyprland.lua was NOT checked: a Lua config is a program, and Hyprland cannot parse one without running it (NOT-POSSIBLE.md#verify-lua-config).
+
+would apply 2 operation(s):
+  create link  <HOME>/.config/hypr -> <HOME>/rice/new/hypr
+  fsync dir    <HOME>/.config
+
+nothing has been changed. re-run with --commit to apply.
+a switch takes effect at the next login; it does not touch the running session.

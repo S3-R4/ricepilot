@@ -114,7 +114,7 @@ fn recover_lands_fully_old_or_fully_new_after_a_crash_at_every_step() {
             Side::New => m.in_attic().expect("the displaced directory"),
         };
         assert_eq!(
-            read::slurp(&dir.join("hyprland.conf")).unwrap(),
+            read::slurp(&dir.join("monitors.conf")).unwrap(),
             "monitor=,preferred,auto,1\n",
             "step {k}: the directory's contents did not survive"
         );

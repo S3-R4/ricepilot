@@ -632,7 +632,9 @@ which means probing at startup would give `switch` without `--commit` a side
 effect — and R4's promise is that a dry run has *zero* of them, not "none worth
 mentioning".
 
-So the probe is the first thing after the commit gate. Nothing before that
+So the probe is the first thing after the commit gate. (D55 makes one
+exception to "zero": a switch that ships a Hyprland config writes a sandboxed
+scratch copy under `state/verify/` in phase A, dry run included.) Nothing before that
 point needs the answer: the plan is the same value in either mode (D19), and
 only the journal records which one was used. A test asserts that a dry run
 leaves not even `.rp-probe-a` behind.
@@ -1068,7 +1070,8 @@ shape gates `Call::HyprlandVerifyConfig`, which takes a `SandboxedConfig`
 that only the verify-config sandbox — the next task — will be able to make,
 so "run verify-config on the real config" is not a mistake anyone can type.
 Neither has been run: `uwsm stop` because it ends the session, and
-verify-config because it has no sandbox yet. The argv `uwsm stop` will be
+verify-config because it has no sandbox yet. (D55 adds the sandbox and the
+one constructor; the real binary is still never run by default.) The argv `uwsm stop` will be
 run with is a constant, asserted in a test.
 
 ## D53 — The requires-check: one `pacman -Q` per package, exit status only, and rollback too
@@ -1166,3 +1169,137 @@ Three things this does not do, recorded rather than implied:
   (stdin is `/dev/null` or a pipe), so none is stopped by `SIGTTIN` either.
   For `uwsm stop` that is the better way round: a session teardown should not
   be interrupted half way by a keypress aimed at ricepilot.
+
+## D55 — The sandboxed verify-config: what is stripped, what is run, and where the copy stays
+
+*M5.* `Hyprland --verify-config -c <file>` parses a config twice and forks
+every `exec =` line on the second pass, so it may only ever see a scratch
+copy. `src/hyprconf.rs` (pure) reads the conf dialect as far as that needs;
+`src/ops/exec/sandbox.rs` holds `SandboxedConfig::build`, the type's only
+constructor (its fields are private to `ops::exec` and that child module);
+`src/hyprverify.rs` decides when to run it and turns the answer into
+`Refusal::VerifyConfigFailed`, which `plan()` now emits. Decisions:
+
+**What is stripped, and in which direction it errs.** A line is blanked if
+its keyword's last `:`-segment starts with `exec` (so `exec`, `execr`,
+`exec-once`, `execr-once`, `exec-shutdown`, and anything later versions add),
+or is `plugin` (a shared object to load; whether `--verify-config` loads it is
+not visible from here). The keyword is looked for behind any leading
+whitespace, `#`, byte-order mark or other non-alphanumeric noise and compared
+case-insensitively, so `exec=x`, `\texec-once\t=`, `EXEC-ONCE`,
+`general:exec` and even a commented-out `# exec-once` are blanked; a line
+continued with `\` is blanked whole, and a continuation line that itself
+looks like exec is blanked whatever it continues. Blanking a line Hyprland
+would not have run costs a less thorough syntax check; keeping one it would
+have run costs a process nobody asked for, so every ambiguity is resolved
+towards blanking. Lines are replaced by empty lines, never removed, so the
+line numbers Hyprland reports are the original's. `bind = …, exec, …` and a
+workspace rule's `on-created-empty:` are kept: they are commands run on a key
+press or a new workspace, which a config check never has. Hyprland's `exec`
+double-forks to detach, so the process-group kill (D54) is not what makes
+this safe; the stripping is.
+
+**`source`, resolved as it will be after the switch.** Each `source =` is
+resolved the way Hyprland 0.55.4 was observed to: `$name` from variables
+defined earlier (including in files sourced earlier), `$HOME` from the
+environment, a leading `~`, and a relative path against the directory of the
+file it is written in. A path under a destination the switch links is read
+from that link's *new* source, never through the link that is there now
+(which still points at the profile being left); a path under a destination
+being retired reads as absent; a path into a profile's source tree is the
+same file seen through its destination. Globs are expanded with `*` and `?`
+per component, dotfiles only by a leading `.`, in sorted order, as glob(3)
+does. Every file reached — including ones outside the profile, such as
+caelestia's `~/.config/caelestia/*.conf` — is copied into the mirror at the
+path Hyprland would see it at, stripped the same way, and the `source` line
+is rewritten to name the copy (glob kept, since every match is copied).
+`$variable` definitions whose value is a path into the profile, or starts
+with `~`, are rewritten into the mirror too. A literal `source` of a file
+that does not exist is left for Hyprland to report.
+
+**What is refused rather than approximated.** A `source` whose resolution
+ricepilot cannot be sure of is not sandboxed, and a config that is not
+sandboxed is not run — the switch declines with the reason: a keyword built
+from a variable (`foo$x = …`), a `source` or variable definition that is or
+might be continued across lines, an undefined `$name` in a `source` path
+(other than `$HOME`), `..` (lexical and kernel resolution disagree once the
+destination is a symlink), `~user`, `[…]`/`{…}` globs, a sourced symlink or a
+glob matching a directory, a cycle, more than 256 files, 32 levels or 1 MiB
+per file, and a file sourced twice to different effect. Symlinked
+intermediate components are refused by `ops::read` as always (D9). Refusing
+is the only answer consistent with R4: a check that could not be done is not
+a check that passed.
+
+**The post-check.** After writing, `build` re-reads every file it wrote and
+refuses to return a `SandboxedConfig` if any line still reads as an
+exec-family keyword or any `source` names a path outside the mirror — the
+same detector applied to what is on the disk, not trust in the rewriter.
+
+**The child's environment.** `env_clear()` (D52), then `HOME` and
+`XDG_{CONFIG,CACHE,DATA,STATE}_HOME` inside the mirror and `XDG_RUNTIME_DIR`
+an empty `run/` beside it. Hyprland refuses to start at all without a
+runtime directory, and the real one is where the live compositor's socket
+is. No `HYPRLAND_INSTANCE_SIGNATURE`, `WAYLAND_DISPLAY` or
+`DBUS_SESSION_BUS_ADDRESS` reaches it. The scratch directory must be on the
+home directory's device and not under `/tmp`, checked before anything is
+read.
+
+**Which file, and the dialect.** Reality, not the manifest: if the tree the
+switch would link at `~/.config/hypr` has a `hyprland.lua`, that is what
+Hyprland 0.55 loads (its own log says "Lua config not found, using legacy
+config" otherwise), and a Lua config is a program — `os.execute` is one call
+away — so no line-stripping makes it safe to parse. It is not run, the plan
+says "NOT checked", and the switch goes ahead
+(`NOT-POSSIBLE.md#verify-lua-config`). Otherwise `hyprland.conf` is checked.
+`hypr_dialect` in the manifest decides nothing here. A tree with neither file
+ships no Hyprland config and is not checked; that Hyprland would then write a
+default config into the profile is left for `doctor`.
+
+**No Hyprland installed: skip, with a note.** Unlike a missing pacman (D53),
+this does not refuse. D53 refused because `requires` is a declaration the
+pre-flight must be able to answer; verify-config is a check whose pass means
+only "the syntax parsed", and on a machine with no `Hyprland` in `/usr/bin`
+or `/usr/local/bin` there is nothing to answer it with — and, if the profile
+needs Hyprland, `requires = ["hyprland"]` is where that is said and refused.
+The plan prints `was NOT checked` and why, so a skipped check is never
+mistaken for a passed one (R7). Nothing is written in that case.
+
+**When it runs, and the one effect it has.** In phase A of `switch` and
+`rollback` (one code path, so rolling back into a profile checks it too;
+`rescue.sh` checks nothing, as D53 says) and in `plan` — dry runs included,
+so the plan printed is the one `--commit` acts on. That makes the scratch
+copy the single thing a dry run or a refusal can leave behind, and SAFETY R4
+and D39 now say so: it is in ricepilot's own state directory, never a live
+path or a profile. A pass prints `parsed … that is a syntax check and nothing
+more` every time; exit 0 is never reported as more (`NOT-POSSIBLE.md#verify-
+config-as-proof`).
+
+**The scratch copy stays.** `state/verify/<id>/` — the switch id, so it sits
+beside `attic/<id>/` and `journal/done-<id>.toml`; `plan`, which has no
+switch id, uses its timestamp — with `-N` appended if the name is taken.
+Inside: `root/` (the mirror) and `run/`. Nothing outside `src/gc/` can remove
+it, and it is the evidence of what Hyprland was actually shown, so it is
+kept; each is a few config files. `gc` is what reclaims it. A config refused
+before copying leaves nothing.
+
+**Tests never run the real binary by default.** The sandbox is proved in
+unit tests against a fake `Hyprland`: a POSIX sh stand-in under
+`target/fixtures/` that records argv, environment and every file it reads,
+follows `source` lines and runs every exec-family line it finds, twice. A
+fixture with exec lines in the entry file, a relative source, a glob, an
+absolute path into the profile, a file outside the profile and a live
+`~/.config/hypr` still pointing at the old profile writes a marker per exec
+line; with the sandbox, none appears, and a control run of the stand-in on
+the original shows it would. Stripping and resolution have pure unit tests
+with the nasty spellings above. The stand-in is injected with a `cfg(test)`
+thread-local that exists only in the crate's own unit-test build — there is
+no variable or flag that swaps a binary in a ricepilot anyone runs — and in
+that build `locate` never returns the real `Hyprland`. The integration tests
+reach the CLI only with configs that never get as far as running it (a Lua
+config, declined first; an unsandboxable one, which the test first confirms
+the sandbox refuses). The existing adopt/init fixtures that happened to
+contain a `hyprland.conf` now call it `monitors.conf`, so that no default
+test runs the compositor. The real binary is run only by
+`tests/verify_config_live.rs`, under `RICEPILOT_LIVE_TESTS=1`; `hyprctl
+version` in `tests/exec.rs` is behind the same opt-in, since it talks to the
+running compositor.

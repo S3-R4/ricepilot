@@ -32,7 +32,7 @@ pub fn build(case: &str) -> Machine {
     let profile = f.profile("mine", "name = \"mine\"\nvolatile = []\ngenerated = []\n");
 
     f.dir(".config/hypr/scripts");
-    f.file(".config/hypr/hyprland.conf", "monitor=,preferred,auto,1\n");
+    f.file(".config/hypr/monitors.conf", "monitor=,preferred,auto,1\n");
     f.file(".config/hypr/scripts/configs.fish", "#!/usr/bin/fish\n");
     let dest = f.path(".config/hypr");
 

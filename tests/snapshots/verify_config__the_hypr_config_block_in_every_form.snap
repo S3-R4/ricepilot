@@ -1,0 +1,30 @@
+---
+source: tests/verify_config.rs
+expression: s
+---
+--- parsed
+hypr config:
+  /home/u/rice/new/hypr/hyprland.conf parsed in a sandboxed `Hyprland --verify-config`: 4 file(s) copied, 7 exec line(s) stripped from the copy first. the copy is kept at /home/u/.local/state/ricepilot/verify/20260927T120000Z.
+  that is a syntax check and nothing more: it does not mean the session will start (NOT-POSSIBLE.md#verify-config-as-proof).
+
+--- did not parse
+hypr config:
+  /home/u/rice/new/hypr/hyprland.conf did not pass the sandboxed verify-config; the switch is declined (below).
+  the copy Hyprland parsed is kept at /home/u/.local/state/ricepilot/verify/20260927T120000Z.
+
+  [R5] /home/u/rice/new/hypr/hyprland.conf: did not parse in a sandboxed verify-config run: Hyprland reported:
+      Config error in file /home/u/rice/new/hypr/hyprland.conf at line 2: cannot parse "banana" as an int.
+
+--- could not be sandboxed
+hypr config:
+  /home/u/rice/new/hypr/hyprland.conf did not pass the sandboxed verify-config; the switch is declined (below).
+
+  [R5] /home/u/rice/new/hypr/hyprland.conf: did not parse in a sandboxed verify-config run: it could not be copied into a sandbox, so Hyprland was not run on it: /home/u/rice/new/hypr/hyprland.conf line 3: `source = ../x.conf`: `..` would be resolved through the destination's symlink, which points somewhere else after the switch; ricepilot will not guess which way
+
+--- no Hyprland
+hypr config:
+  /home/u/rice/new/hypr/hyprland.conf was NOT checked: `Hyprland` is not installed in /usr/bin, /usr/local/bin, so there is nothing to check it with. if this machine needs Hyprland, say so in `requires`.
+
+--- lua
+hypr config:
+  /home/u/rice/new/hypr/hyprland.lua was NOT checked: a Lua config is a program, and Hyprland cannot parse one without running it (NOT-POSSIBLE.md#verify-lua-config).

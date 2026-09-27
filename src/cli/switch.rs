@@ -166,13 +166,18 @@ pub fn run_with(
     )?;
     let attic = paths.attic_dir().join(&id);
     let attic_dev = read::dev_of_nearest_existing_ancestor(&paths.attic_dir())?;
+    // Run in a dry run too, so the plan printed is the one `--commit` acts on.
+    // Its one effect is the scratch copy under `state/verify/<id>/`, in
+    // ricepilot's own state and never the user's config (D55).
+    let hypr = crate::hyprverify::check(&paths.home, &paths.state, &id, &req.targets, &req.retire)?;
     let ctx = plan::PlanContext::new(paths.home.clone(), attic.clone(), attic_dev)
         .with_sources(source_facts(&req.targets)?)
         .missing_requires(crate::requires::missing(&req.requires)?)
+        .verify_failed(hypr.as_ref().and_then(|o| o.failure()))
         .retiring(req.retire.clone());
     let plan = plan::plan(&observed, &req.targets, &ctx);
 
-    let header = render::switch_header(req, &observed, &plan, commit);
+    let header = render::switch_header(req, &observed, hypr.as_ref(), &plan, commit);
 
     // A decline is the complete list of reasons and a non-zero exit, with zero
     // side effects (R4). It is not an `Err` because the itemised list is the

@@ -144,10 +144,31 @@ process that would not notice the swap.
 works".
 
 It parses twice and forks every `exec =` line on the second pass, so it can
-only be run at all on a sanitised scratch copy. Exit 0 means the syntax
-parsed. It does not mean the session will come up.
+only be run at all on a sanitised scratch copy — every exec-family line
+blanked, every sourced file copied with it, paths rewritten into the copy
+([DECISIONS.md](DECISIONS.md) D55). Exit 0 means the syntax parsed. It does
+not mean the session will come up, and the plan says so each time it reports
+a pass.
 
 **Instead:** the recovery ladder in [DESIGN.md §7](DESIGN.md#7-failure-and-recovery-ladder).
+
+## verify-lua-config
+
+**Declined:** running `Hyprland --verify-config` on a `hyprland.lua`.
+
+A Lua config is a program: `os.execute`, `io.popen` and Hyprland's own
+`hl.*` calls are available to any line of it, and what runs depends on what
+earlier lines computed. Stripping `exec =` lines is what makes a `conf`
+config safe to parse; there is no equivalent for a program short of running
+it, which is the thing that must not happen. Hyprland ≥ 0.55 loads
+`hyprland.lua` in preference to `hyprland.conf` when both exist, so its
+presence decides, whatever `hypr_dialect` says.
+
+**Instead:** the switch goes ahead and its plan says, in so many words, that
+the config was **not** checked. Whether it works is found out at the next
+login, with the recovery ladder in
+[DESIGN.md §7](DESIGN.md#7-failure-and-recovery-ladder) — `rescue.sh` from a
+TTY — as the way back.
 
 ## repairing-foreign-state
 

@@ -15,7 +15,8 @@
 //! * [`lock`]   — `flock(LOCK_EX|LOCK_NB)` held for the process lifetime.
 //!
 //! `read`, `mutate` and `lock` landed in M2; `exec` has `sh -n` from M3 and
-//! the rest of its allowlist from M5 (D52).
+//! the rest of its allowlist from M5 (D52), with the verify-config sandbox
+//! (`exec::sandbox`, D55).
 
 pub mod exec;
 pub mod lock;

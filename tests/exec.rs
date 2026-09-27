@@ -20,6 +20,19 @@ use common::Fixture;
 use ricepilot::ops::exec::{self, Allowed, Call, HyprctlQuery};
 use ricepilot::Error;
 
+/// Whether the tests that talk to the live session, or run the real
+/// `Hyprland`, were asked for. They never run by default: `hyprctl` reaches
+/// the running compositor, and `Hyprland` is the compositor.
+pub fn live_tests(test: &str) -> bool {
+    let on = std::env::var_os("RICEPILOT_LIVE_TESTS").is_some_and(|v| v == "1");
+    if !on {
+        eprintln!(
+            "SKIPPED {test}: talks to the live session; set RICEPILOT_LIVE_TESTS=1 to run it"
+        );
+    }
+    on
+}
+
 /// Where `what` is, or `None` after saying out loud that the test is skipped.
 fn installed(what: Allowed, test: &str) -> Option<PathBuf> {
     let found = exec::locate(what).unwrap();
@@ -43,11 +56,13 @@ fn every_allowlist_entry_is_exercised_or_excused() {
             Allowed::ShSyntaxCheck => "exercised: sh_n_* (real /bin/sh)",
             Allowed::PacmanQuery => "exercised: pacman_* (real pacman, skipped if absent)",
             Allowed::Hyprctl => {
-                "exercised: hyprctl_version_* (real hyprctl, skipped if absent or no instance)"
+                "exercised: hyprctl_version_* only under RICEPILOT_LIVE_TESTS=1 (it talks to the \
+                 running compositor)"
             }
             Allowed::GitStatus => "exercised: git_status_* (fixture repo under target/fixtures)",
             Allowed::HyprlandVerifyConfig => {
-                "NOT exercised: needs a sandboxed scratch copy, which nothing can construct yet"
+                "exercised against a fake stand-in (src/ops/exec/sandbox.rs unit tests); the \
+                 real binary only under RICEPILOT_LIVE_TESTS=1 (tests/verify_config_live.rs)"
             }
             Allowed::UwsmStop => {
                 "NOT exercised: ends the session; argv and gate asserted, never run"
@@ -154,6 +169,9 @@ fn pacman_query_refuses_anything_that_is_not_a_package_name() {
 /// an instance to ask, so it skips outside a Hyprland session.
 #[test]
 fn hyprctl_version_asks_the_running_compositor() {
+    if !live_tests("hyprctl_version_asks_the_running_compositor") {
+        return;
+    }
     let Some(at) = installed(
         Allowed::Hyprctl,
         "hyprctl_version_asks_the_running_compositor",
@@ -343,17 +361,29 @@ fn nothing_in_the_crate_can_reach_uwsm_stop_yet() {
     assert!(named.is_empty(), "Call::UwsmStop is named: {named:#?}");
 }
 
-/// Likewise: nothing can hand `Hyprland --verify-config` a file until the
-/// sandbox exists, and it never gets the compositor's instance signature.
+/// Likewise: the only place a `SandboxedConfig` is made is its constructor
+/// in the sandbox module, and the call never gets the compositor's instance
+/// signature (D55).
 #[test]
-fn verify_config_cannot_be_pointed_at_a_real_config_yet() {
+fn verify_config_is_only_ever_pointed_at_a_sandbox() {
     let built: Vec<String> = source_lines_mentioning("SandboxedConfig {")
         .into_iter()
         .filter(|l| !l.contains("pub struct SandboxedConfig {"))
+        .filter(|l| !l.contains("impl SandboxedConfig {"))
+        .collect();
+    assert_eq!(
+        built.len(),
+        1,
+        "a SandboxedConfig is constructed somewhere other than its one constructor: {built:#?}"
+    );
+    assert!(built[0].starts_with("ops/exec/sandbox.rs:"), "{built:#?}");
+    let called: Vec<String> = source_lines_mentioning("Call::HyprlandVerifyConfig(")
+        .into_iter()
+        .filter(|l| !l.starts_with("ops/exec.rs:"))
         .collect();
     assert!(
-        built.is_empty(),
-        "a SandboxedConfig is constructed: {built:#?}"
+        called.iter().all(|l| l.starts_with("hyprverify.rs:")),
+        "verify-config is run from somewhere other than hyprverify: {called:#?}"
     );
     assert!(Allowed::HyprlandVerifyConfig.passes().is_empty());
     assert!(!Allowed::HyprlandVerifyConfig

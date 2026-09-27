@@ -47,11 +47,11 @@
 //! confirmation and its pre-flight; until then the call is unreachable by
 //! construction, not by convention.
 //!
-//! [`Call::HyprlandVerifyConfig`] takes a [`SandboxedConfig`], which likewise
-//! has no constructor yet. `Hyprland --verify-config` forks every `exec =`
-//! line it parses, so the only thing it may ever be pointed at is a scratch
-//! copy with those lines stripped — and the sandbox that builds one is what
-//! will own the constructor.
+//! [`Call::HyprlandVerifyConfig`] takes a [`SandboxedConfig`], whose one
+//! constructor is [`SandboxedConfig::build`] in [`sandbox`].
+//! `Hyprland --verify-config` forks every `exec =` line it parses, so the only
+//! thing it may ever be pointed at is a scratch copy with those lines
+//! stripped, and the constructor is what makes one (D55).
 
 use std::ffi::OsString;
 use std::io::{Read, Write as _};
@@ -181,16 +181,61 @@ pub enum HyprctlQuery {
 }
 
 /// A Hyprland config that is safe to hand to `Hyprland --verify-config`: a
-/// scratch copy with `exec =`/`execr =` stripped and absolute paths rewritten
-/// into the scratch tree.
+/// scratch copy, every sourced file copied with it, every exec-family line
+/// blanked, paths into the profile rewritten into the copy (D55).
 ///
-/// Has no constructor in this build. The sandbox that produces one is the
-/// only thing that may, so that "run verify-config on the user's real config"
-/// is not a mistake anyone can type.
+/// Its one constructor is [`SandboxedConfig::build`], in the child module
+/// [`sandbox`], which documents what it guarantees. The fields are private to
+/// this module and that one, so "run verify-config on the user's real
+/// config" is not a mistake anyone can type.
 #[derive(Debug)]
 pub struct SandboxedConfig {
+    /// The copy of the entry file, which is what `-c` names.
     file: PathBuf,
+    /// The scratch directory: `state/verify/<id>/`.
+    scratch: PathBuf,
+    /// `HOME` for the child: the mirror of the real home, inside `scratch`.
+    home: PathBuf,
+    /// `XDG_RUNTIME_DIR` for the child, inside `scratch`.
+    runtime: PathBuf,
+    copied: Vec<sandbox::Copied>,
 }
+
+impl SandboxedConfig {
+    /// The scratch directory. Kept after the run, as the evidence of what was
+    /// parsed; only `gc` can take it away (D55).
+    pub fn scratch(&self) -> &Path {
+        &self.scratch
+    }
+
+    /// Every file copied, with what was stripped from it.
+    pub fn copied(&self) -> &[sandbox::Copied] {
+        &self.copied
+    }
+
+    /// `text` with each copy's path replaced by the path it was copied from,
+    /// so what Hyprland says about the copy is said about the user's file.
+    pub fn in_terms_of_the_originals(&self, text: &str) -> String {
+        let mut pairs: Vec<(String, String)> = self
+            .copied
+            .iter()
+            .map(|c| {
+                (
+                    c.copy.to_string_lossy().into_owned(),
+                    c.real.to_string_lossy().into_owned(),
+                )
+            })
+            .collect();
+        pairs.sort_by_key(|(copy, _)| std::cmp::Reverse(copy.len()));
+        let mut out = text.to_string();
+        for (copy, real) in pairs {
+            out = out.replace(&copy, &real);
+        }
+        out
+    }
+}
+
+pub mod sandbox;
 
 /// Proof that `uwsm stop` has been asked for and confirmed.
 ///
@@ -302,6 +347,27 @@ impl Call<'_> {
             // uwsm is a Python program that runs `systemctl`. It gets a fixed
             // search path, not ricepilot's.
             Call::UwsmStop(_) => vec![("PATH".into(), "/usr/bin".into())],
+            // Everything Hyprland could look for, inside the scratch copy:
+            // `~` there is the mirror of the real home, and the runtime
+            // directory — where a compositor's socket and log would go — is
+            // an empty directory of its own. Hyprland refuses to start
+            // without one, and the real one is exactly what it must not see.
+            // No HYPRLAND_INSTANCE_SIGNATURE, no WAYLAND_DISPLAY, no
+            // DBUS_SESSION_BUS_ADDRESS: `env_clear` took them all (D55).
+            Call::HyprlandVerifyConfig(cfg) => {
+                let h = |rel: &str| cfg.home.join(rel).into_os_string();
+                vec![
+                    ("HOME".into(), cfg.home.clone().into_os_string()),
+                    ("XDG_CONFIG_HOME".into(), h(".config")),
+                    ("XDG_CACHE_HOME".into(), h(".cache")),
+                    ("XDG_DATA_HOME".into(), h(".local/share")),
+                    ("XDG_STATE_HOME".into(), h(".local/state")),
+                    (
+                        "XDG_RUNTIME_DIR".into(),
+                        cfg.runtime.clone().into_os_string(),
+                    ),
+                ]
+            }
             _ => Vec::new(),
         }
     }
@@ -355,6 +421,14 @@ impl Ran {
 pub fn locate(what: Allowed) -> Result<Option<PathBuf>> {
     if what == Allowed::ShSyntaxCheck {
         return Ok(Some(PathBuf::from(SH)));
+    }
+    // In the crate's own unit tests, `Hyprland` is whatever stand-in the test
+    // installed, or absent — never the real binary (D55). Compiled out of
+    // every other build, so there is no variable or flag that swaps a binary
+    // in a ricepilot anyone runs.
+    #[cfg(test)]
+    if what == Allowed::HyprlandVerifyConfig {
+        return Ok(test_support::FAKE_HYPRLAND.with(|f| f.borrow().clone()));
     }
     for dir in BIN_DIRS {
         let candidate = Path::new(dir).join(what.program());
@@ -609,6 +683,23 @@ pub fn sh_syntax_check(script: &str) -> Result<()> {
             ran.stderr.trim()
         ),
     })
+}
+
+/// The stand-in for `Hyprland` in unit tests. `cfg(test)` only: it does not
+/// exist in the library integration tests link against, nor in the binary.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::cell::RefCell;
+    use std::path::PathBuf;
+
+    thread_local! {
+        pub(crate) static FAKE_HYPRLAND: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    }
+
+    /// Make `Hyprland` mean `fake` for the rest of this test's thread.
+    pub(crate) fn use_fake_hyprland(fake: Option<PathBuf>) {
+        FAKE_HYPRLAND.with(|f| *f.borrow_mut() = fake);
+    }
 }
 
 #[cfg(test)]

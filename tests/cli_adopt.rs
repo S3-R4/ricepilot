@@ -86,7 +86,7 @@ fn machine(case: &str) -> Machine {
     // Shape 3: a real directory, with a nested file, a mode-600 file and a
     // symlink in it — the thing adopt exists for.
     f.dir(".config/hypr/scripts");
-    f.file(".config/hypr/hyprland.conf", "monitor=,preferred,auto,1\n");
+    f.file(".config/hypr/monitors.conf", "monitor=,preferred,auto,1\n");
     f.file(".config/hypr/scripts/configs.fish", "#!/usr/bin/fish\n");
     f.file(".config/hypr/secret.token", "swordfish\n");
     {
@@ -97,7 +97,7 @@ fn machine(case: &str) -> Machine {
         )
         .unwrap();
     }
-    f.link(".config/hypr/self.conf", Path::new("hyprland.conf"));
+    f.link(".config/hypr/self.conf", Path::new("monitors.conf"));
 
     // Shape 2: a foreign symlink, pointing at a directory that is nobody's
     // profile.
@@ -171,7 +171,7 @@ fn a_committed_adopt_links_the_path_and_the_directory_survives_in_the_attic() {
     // symlink.
     let copy = m.profile.join("hypr");
     assert_eq!(
-        read::slurp(&copy.join("hyprland.conf")).unwrap(),
+        read::slurp(&copy.join("monitors.conf")).unwrap(),
         "monitor=,preferred,auto,1\n"
     );
     assert_eq!(
@@ -183,7 +183,7 @@ fn a_committed_adopt_links_the_path_and_the_directory_survives_in_the_attic() {
     );
     assert_eq!(
         read::readlink(&copy.join("self.conf")).unwrap(),
-        Path::new("hyprland.conf")
+        Path::new("monitors.conf")
     );
 
     // And the original directory is in the attic — the same inode it always
@@ -192,7 +192,7 @@ fn a_committed_adopt_links_the_path_and_the_directory_survives_in_the_attic() {
     let moved = read::lstat(&attic).unwrap().unwrap();
     assert_eq!((moved.dev, moved.ino), before, "it was moved, not re-made");
     assert_eq!(
-        read::slurp(&attic.join("hyprland.conf")).unwrap(),
+        read::slurp(&attic.join("monitors.conf")).unwrap(),
         "monitor=,preferred,auto,1\n"
     );
     assert_eq!(

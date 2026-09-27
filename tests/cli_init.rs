@@ -77,7 +77,7 @@ fn machine(case: &str) -> Machine {
     for leaf in ["hypr", "foot", "uwsm", "zen"] {
         f.dir(&format!("rice/caelestia/{leaf}"));
     }
-    f.file("rice/caelestia/hypr/hyprland.conf", "monitor=\n");
+    f.file("rice/caelestia/hypr/monitors.conf", "monitor=\n");
     f.file("rice/caelestia/foot/foot.ini", "font=\n");
     f.file("rice/caelestia/uwsm/env-hyprland", "export X=1\n");
     f.file("rice/caelestia/zen/userChrome.css", "* {}\n");
@@ -186,7 +186,7 @@ fn a_committed_init_registers_by_reference_and_moves_nothing() {
     // link included.
     let baseline = m.f.state().join("baseline/caelestia");
     assert_eq!(
-        read::slurp(&baseline.join("hypr/hyprland.conf")).unwrap(),
+        read::slurp(&baseline.join("hypr/monitors.conf")).unwrap(),
         "monitor=\n"
     );
     assert_eq!(
@@ -207,7 +207,7 @@ fn a_committed_init_registers_by_reference_and_moves_nothing() {
         "an absolute link is copied as the link it is"
     );
     assert!(
-        read::lstat(&m.root.join("hypr/hyprland.conf"))
+        read::lstat(&m.root.join("hypr/monitors.conf"))
             .unwrap()
             .is_some(),
         "the rice clone must still be there: a copy, never a move"

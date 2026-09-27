@@ -7,6 +7,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
+use crate::hyprverify::{NotChecked, Outcome};
 use crate::journal::{Direction, Recovery};
 use crate::manifest::Manifest;
 use crate::observe::Observed;
@@ -18,6 +19,16 @@ use super::paths::{Paths, Profile};
 /// promise in `SAFETY.md` R4: what is printed here is the value
 /// `switch --commit` executes.
 pub fn plan(profile: &str, observed: &[Observed], plan: &Plan) -> String {
+    plan_with(profile, observed, None, plan)
+}
+
+/// [`plan`], with what the verify-config pre-flight found (D55).
+pub fn plan_with(
+    profile: &str,
+    observed: &[Observed],
+    hypr: Option<&Outcome>,
+    plan: &Plan,
+) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "plan: switch to profile `{profile}`");
     let _ = writeln!(s);
@@ -30,6 +41,7 @@ pub fn plan(profile: &str, observed: &[Observed], plan: &Plan) -> String {
         let _ = writeln!(s, "  {:<14} {}", o.shape.as_str(), o.dest.display());
     }
     let _ = writeln!(s);
+    s.push_str(&hypr_check(hypr));
 
     match plan {
         Plan::NoOp => {
@@ -61,6 +73,71 @@ pub fn plan(profile: &str, observed: &[Observed], plan: &Plan) -> String {
 
 /// The refusal block, on its own so each variant's wording can be snapshotted
 /// independently of the surrounding plan.
+/// The `hypr config:` block: what the verify-config pre-flight did, in a
+/// plan and a switch alike. Empty when the switch ships no Hyprland config.
+///
+/// It says what a pass is worth every time it reports one, because "the
+/// config parsed" is exactly the sentence a user would otherwise read as
+/// "the session will start" (`NOT-POSSIBLE.md#verify-config-as-proof`).
+pub fn hypr_check(hypr: Option<&Outcome>) -> String {
+    let Some(o) = hypr else {
+        return String::new();
+    };
+    let mut s = String::from("hypr config:\n");
+    match o {
+        Outcome::Parsed {
+            config,
+            scratch,
+            files,
+            stripped,
+        } => {
+            let _ = writeln!(
+                s,
+                "  {} parsed in a sandboxed `Hyprland --verify-config`: {files} file(s) copied, \
+                 {stripped} exec line(s) stripped from the copy first. the copy is kept at {}.",
+                config.display(),
+                scratch.display()
+            );
+            let _ = writeln!(
+                s,
+                "  that is a syntax check and nothing more: it does not mean the session will \
+                 start (NOT-POSSIBLE.md#verify-config-as-proof)."
+            );
+        }
+        Outcome::Failed {
+            config, scratch, ..
+        } => {
+            let _ = writeln!(
+                s,
+                "  {} did not pass the sandboxed verify-config; the switch is declined (below).",
+                config.display()
+            );
+            if let Some(scratch) = scratch {
+                let _ = writeln!(
+                    s,
+                    "  the copy Hyprland parsed is kept at {}.",
+                    scratch.display()
+                );
+            }
+        }
+        Outcome::NotChecked { config, why } => {
+            let why = match why {
+                NotChecked::NoHyprland => format!(
+                    "`Hyprland` is not installed in {}, so there is nothing to check it with. \
+                     if this machine needs Hyprland, say so in `requires`",
+                    crate::ops::exec::BIN_DIRS.join(", ")
+                ),
+                NotChecked::Lua => "a Lua config is a program, and Hyprland cannot parse one \
+                                    without running it (NOT-POSSIBLE.md#verify-lua-config)"
+                    .to_string(),
+            };
+            let _ = writeln!(s, "  {} was NOT checked: {why}.", config.display());
+        }
+    }
+    let _ = writeln!(s);
+    s
+}
+
 pub fn refusal_list(refusals: &[Refusal]) -> String {
     let mut s = String::new();
     for r in refusals {
@@ -412,6 +489,7 @@ pub fn rescue(path: &Path) -> String {
 pub fn switch_header(
     req: &super::switch::Request,
     observed: &[Observed],
+    hypr: Option<&Outcome>,
     plan: &Plan,
     committing: bool,
 ) -> String {
@@ -437,6 +515,7 @@ pub fn switch_header(
         );
     }
     let _ = writeln!(s);
+    s.push_str(&hypr_check(hypr));
 
     match plan {
         Plan::NoOp => {

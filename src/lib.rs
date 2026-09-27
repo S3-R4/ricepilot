@@ -16,6 +16,8 @@ pub mod cli;
 pub mod doctor;
 pub mod gc;
 pub mod generations;
+pub mod hyprconf;
+pub mod hyprverify;
 pub mod journal;
 pub mod ledger;
 pub mod manifest;

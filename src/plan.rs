@@ -344,6 +344,10 @@ pub struct PlanContext {
     /// there is none outside `src/gc/` — so the nearest true thing is to
     /// displace it, and to say so.
     pub retire: Vec<PathBuf>,
+    /// The Hyprland config that did not parse in a sandboxed
+    /// `Hyprland --verify-config` run, and what was reported, gathered by
+    /// [`crate::hyprverify::check`] before planning (D55).
+    pub verify_failed: Option<(PathBuf, String)>,
 }
 
 impl PlanContext {
@@ -357,6 +361,7 @@ impl PlanContext {
             missing_requires: Vec::new(),
             sources: Vec::new(),
             retire: Vec::new(),
+            verify_failed: None,
         }
     }
 
@@ -369,6 +374,12 @@ impl PlanContext {
     /// The target profile's `requires` that are not installed.
     pub fn missing_requires(mut self, missing: Vec<String>) -> Self {
         self.missing_requires = missing;
+        self
+    }
+
+    /// The config that failed the sandboxed verify-config pre-flight.
+    pub fn verify_failed(mut self, failed: Option<(PathBuf, String)>) -> Self {
+        self.verify_failed = failed;
         self
     }
 
@@ -445,6 +456,13 @@ pub fn plan(observed: &[Observed], target: &[Target], ctx: &PlanContext) -> Plan
     if !ctx.missing_requires.is_empty() {
         refusals.push(Refusal::MissingRequires {
             packages: ctx.missing_requires.clone(),
+        });
+    }
+
+    if let Some((file, detail)) = &ctx.verify_failed {
+        refusals.push(Refusal::VerifyConfigFailed {
+            file: file.clone(),
+            detail: detail.clone(),
         });
     }
 

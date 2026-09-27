@@ -64,6 +64,13 @@ a write-ahead journal fsync'd to both the file and its containing directory.
 A refusal names the offending path and the rule it violates, exits non-zero
 with a stable code (`src/error.rs`), and has **zero** side effects.
 
+One thing is written before the commit gate, and it is written in ricepilot's
+own state directory, never a live path or a profile: when a switch ships a
+Hyprland config, the pre-flight's sandboxed `Hyprland --verify-config` needs
+a stripped copy of it on disk, under `state/verify/<id>/`. A dry run and a
+refusal can leave that copy behind; it is kept as the record of what was
+parsed ([DECISIONS.md](DECISIONS.md) D55).
+
 *Enforced by*: `--commit` is a required flag on every mutating subcommand;
 `plan.rs` is pure so the printed plan and the executed plan are the same
 value; every refusal message is snapshot-tested.

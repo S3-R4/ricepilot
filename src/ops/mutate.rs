@@ -118,6 +118,25 @@ pub fn make_dirs(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Make `path` as a new, empty directory (mode 0700), its parents as
+/// [`make_dirs`] would. `Ok(false)` if something is already there: a caller
+/// that needs a directory nobody else has written into asks this rather than
+/// [`make_dirs`], which is content with one that exists.
+pub fn make_dir_new(path: &Path) -> Result<bool> {
+    let parent = path.parent().ok_or_else(|| Error::Refused {
+        rule: "R4",
+        path: path.to_path_buf(),
+        why: "has no parent directory".into(),
+    })?;
+    make_dirs(parent)?;
+    let (dirfd, name) = read::parent_dirfd(path)?;
+    match rustix::fs::mkdirat(&dirfd, name.as_os_str(), Mode::from_bits_truncate(0o700)) {
+        Ok(()) => Ok(true),
+        Err(rustix::io::Errno::EXIST) => Ok(false),
+        Err(e) => Err(io(format!("mkdir {}", path.display()), e)),
+    }
+}
+
 /// `symlinkat`. Fails if anything already occupies `link_path` — a symlink is
 /// created or it is not, and clobbering is not one of the options.
 pub fn create_symlink(link_path: &Path, target: &Path) -> Result<()> {

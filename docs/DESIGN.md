@@ -140,7 +140,11 @@ the installer wrote. Refusing and telling the user is the correct outcome.
    another destination; **the source the link would point at is missing or is
    not a directory** ([DECISIONS.md](DECISIONS.md) D42); missing `requires`
    (one `pacman -Q` per package, before `plan()`, applied to `rollback` too —
-   D53); sandboxed verify-config failure.
+   D53); sandboxed verify-config failure — the config the switch would put at
+   `~/.config/hypr` is copied with every exec-family line stripped and parsed
+   by `Hyprland --verify-config`, dry run included; the copy stays under
+   `state/verify/<id>/`, a Lua config is not run, and a machine with no
+   Hyprland skips the check and says so (D55).
 6. Print the plan. **Stop here unless `--commit`.**
 7. Probe `RENAME_EXCHANGE` (the probe writes two symlinks, so it happens after
    the commit gate and not at startup — D39).
@@ -234,12 +238,16 @@ because nothing is ever deleted.
   on the target machine lives in submap `global`. Any live reload must be
   followed by `hyprctl dispatch submap reset` plus a bind-reachability probe.
 * `Hyprland --verify-config -c <file>` parses **twice** and forks every
-  `exec =` line on the second pass. It is only ever run on a scratch copy with
-  `exec =`/`execr =` stripped, absolute path variables rewritten to point at
-  the scratch copy, and `HYPRLAND_INSTANCE_SIGNATURE` unset. Exit 0 means
-  "syntax parsed", nothing more.
+  `exec =` line on the second pass. It is only ever run on a scratch copy
+  (`ops::exec::SandboxedConfig`, one constructor) with every exec-family line
+  and `plugin` blanked — in every `source`d file too, each copied along —
+  path variables into the profile rewritten into the copy, `HOME`/`XDG_*`
+  inside it, and `HYPRLAND_INSTANCE_SIGNATURE` unset. Exit 0 means "syntax
+  parsed", nothing more (D55).
 * `hyprctl config full-reload` does not exist. Do not add it.
-* Dialect-agnostic: ≥0.55 may use `hyprland.lua`.
+* Dialect-agnostic: ≥0.55 prefers `hyprland.lua` when present. A Lua config
+  is a program and is never run by verify-config
+  (`NOT-POSSIBLE.md#verify-lua-config`).
 * Clean logout is `uwsm stop` — never `hyprctl dispatch exit`, never killing
   Hyprland.
 
@@ -256,7 +264,9 @@ it, never because it happened to be found.
 ## 10. CLI surface
 
 Read-only: `status`, `doctor`, `list`, `show`, `plan`, `verify`, `diff`,
-`rescue` (prints the script's path).
+`rescue` (prints the script's path). `plan` — like a `switch` dry run — writes
+one thing, in ricepilot's own state: the verify-config scratch copy when the
+profile ships a Hyprland config (D55).
 
 `verify <profile>` compares the profile tree against the blake3 manifest
 recorded the last time ricepilot switched to it: content hash for regular

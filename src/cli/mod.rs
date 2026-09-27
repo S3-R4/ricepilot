@@ -275,14 +275,29 @@ fn cmd_plan(paths: &paths::Paths, name: &str) -> Result<String> {
     let observed = crate::observe::observe(&dests, &ownership)?;
     let attic = paths.attic_dir();
     let attic_dev = crate::ops::read::dev_of_nearest_existing_ancestor(&attic)?;
-    // The same requires-check `switch` runs, so the printed plan is the one
-    // `--commit` would act on — including when it would decline.
+    // The same requires-check and verify-config `switch` runs, so the printed
+    // plan is the one `--commit` would act on — including when it would
+    // decline. The verify-config scratch copy is named for when it was made;
+    // `plan` has no switch id (D55).
+    let hypr = crate::hyprverify::check(
+        &paths.home,
+        &paths.state,
+        &crate::journal::timestamp_id(std::time::SystemTime::now()),
+        &targets,
+        &[],
+    )?;
     let ctx = crate::plan::PlanContext::new(paths.home.clone(), attic, attic_dev)
         .with_sources(switch::source_facts(&targets)?)
-        .missing_requires(crate::requires::missing(&profile.manifest.requires)?);
+        .missing_requires(crate::requires::missing(&profile.manifest.requires)?)
+        .verify_failed(hypr.as_ref().and_then(|o| o.failure()));
     let plan = crate::plan::plan(&observed, &targets, &ctx);
 
-    Ok(render::plan(&profile.name, &observed, &plan))
+    Ok(render::plan_with(
+        &profile.name,
+        &observed,
+        hypr.as_ref(),
+        &plan,
+    ))
 }
 
 /// `ricepilot verify <profile>`.
