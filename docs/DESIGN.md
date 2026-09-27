@@ -94,11 +94,13 @@ declared `generated` and left alone.
 | `ops/read.rs` | `*at()`, `O_PATH\|O_NOFOLLOW`, `statfs` | yes, read-only |
 | `ops/mutate.rs` | the closed set of mutators, including the copier | yes |
 | `ops/exec.rs` | closed subprocess allowlist | yes |
+| `ops/look.rs` | the read side as a trait object (`Look`): reads, `pacman -Q`, `sh -n`, nothing else | yes, read-only |
 | `ops/lock.rs` | `flock(LOCK_EX\|LOCK_NB)` | yes |
 | `journal.rs` | WAL, state-driven idempotent replay | via `ops` |
 | `ledger.rs`, `generations.rs` | ownership and history | via `ops` |
 | `verify.rs` | blake3 manifest | via `ops::read` |
 | `rescue.rs` | regenerate `rescue.sh` | via `ops::mutate` |
+| `doctor.rs` | read-only health report | only through a `&dyn Look` (D57) |
 | `gc/` | **the only delete primitive in the crate** | yes |
 | `cli/` | clap surface, wording, confirmations | no |
 
@@ -309,8 +311,20 @@ Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
 * Confirmation has no `--yes`. The prompt always runs; `inquire` when stdin
   is a terminal, the same question text read line-wise when it is not, so a
   test drives the real confirmation rather than skipping it (D47).
-* `doctor` reports and never fixes: owned links that are no longer links; the
-  installer's legacy-migration hazard; writers that write into the profile
-  tree; foreign theme daemons running; `/home` unsnapshotted; relogin-scoped
-  drift since the last switch. Where a fix needs root or judgement, it prints
-  the exact command and stops.
+* `doctor` reports and never fixes, and is read-only by construction: it
+  reaches the machine only through `ops::look::Look`, takes no lock, and
+  builds no verify-config scratch copy ([DECISIONS.md](DECISIONS.md) D57).
+  **Problems** first — an unrecovered journal; owned links that are gone,
+  real directories, files, re-pointed, replaced by a look-alike or dangling;
+  a manifest out of step with the ledger (D51); an adopted path a rollback
+  left empty, with the directory in the attic (D49); a missing source; a
+  `~/.config/hypr` tree with no entry file; profile drift since it was
+  recorded; a missing, stale or unparseable `rescue.sh`; the live profile's
+  missing `requires`. Then **hazards** about the machine — `/home`
+  unsnapshotted, `hypr-session` writing into the profile tree, caelestia's
+  theme daemons running, caelestia-cli's legacy-migration path, a large
+  attic, piled-up verify-config copies. Every finding names its path and
+  rule and prints the exact commands, including the root-only
+  `snapper -c home create-config /home` and the `SESSION_DIR` patch, and
+  runs none of them. Healthy checks fold into one `ok:` line. It exits `7`
+  when there is a problem and `0` otherwise, hazards included.

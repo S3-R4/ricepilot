@@ -18,7 +18,8 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::generations::Generation;
-use crate::ops::{exec, mutate, read};
+use crate::ops::look::{Live, Look};
+use crate::ops::{exec, mutate};
 use crate::{Error, Result};
 
 /// The commands the script is allowed to name, and where they were found.
@@ -44,18 +45,25 @@ impl Binaries {
     /// is not written, because a rescue script naming a binary that is not
     /// there is worse than none: it fails at the moment it is relied on.
     pub fn locate() -> Result<Self> {
+        Self::locate_via(&Live)
+    }
+
+    /// [`Binaries::locate`], looking through `look` — so `doctor`, which
+    /// may only read (D57), can work out the script a switch would have
+    /// written and compare it with the one on disk.
+    pub fn locate_via(look: &dyn Look) -> Result<Self> {
         Ok(Binaries {
-            ln: find("ln")?,
-            mv: find("mv")?,
-            mkdir: find("mkdir")?,
+            ln: find(look, "ln")?,
+            mv: find(look, "mv")?,
+            mkdir: find(look, "mkdir")?,
         })
     }
 }
 
-fn find(name: &str) -> Result<PathBuf> {
+fn find(look: &dyn Look, name: &str) -> Result<PathBuf> {
     for dir in BIN_DIRS {
         let candidate = Path::new(dir).join(name);
-        if read::lstat_or_absent(&candidate)?.is_some() {
+        if look.lstat_or_absent(&candidate)?.is_some() {
             return Ok(candidate);
         }
     }

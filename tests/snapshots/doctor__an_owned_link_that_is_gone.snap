@@ -1,0 +1,29 @@
+---
+source: tests/doctor.rs
+expression: r.stdout
+---
+ricepilot doctor: 1 problem. nothing was changed; the commands are for you to run.
+
+PROBLEM 1 of 1: <HOME>/.config/btop
+  is gone: nothing is where ricepilot's link was.
+  rule: SAFETY.md, the ownership predicate
+
+  the ledger recorded a link here to
+    <HOME>/rice/new/btop
+  for profile `new`.
+
+  something other than ricepilot took it away: ricepilot never removes
+  anything, and when it stops managing a path it says so and forgets it.
+
+  run:
+    # ricepilot sees an empty path, and links it again
+    ricepilot plan new
+    ricepilot switch new --commit
+
+not checked, or worth knowing:
+  - profile `new`: <HOME>/rice/new/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: <HOME>/rice/old/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: no manifest has been recorded for it yet, so its tree was not compared with anything
+  - running theme daemons (/proc) and snapper's configuration (/etc/snapper) were not checked: this is the test sandbox (D56)
+
+ok: no interrupted operation; 2 owned links intact; the ledger and the manifests agree; 2 hypr trees have an entry file; 1 profile tree matches its recorded manifest; rescue.sh restores generation 0000 and parses; attic: 1 entry, 0 B (the newest, <TS>, 0 B); no verify-config copies

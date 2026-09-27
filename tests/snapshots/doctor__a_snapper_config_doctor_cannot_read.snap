@@ -1,0 +1,28 @@
+---
+source: tests/doctor.rs
+expression: text
+---
+ricepilot doctor: no problems, 1 hazard. nothing was changed; the commands are for you to run.
+
+HAZARD 1 of 1: /home
+  may not be snapshotted.
+  rule: NOT-POSSIBLE.md#snapshotting
+
+  doctor could not read `home` — snapper's configs are often root-only — so
+  /home may be covered after all; `snapper list-configs` says.
+
+  everything ricepilot moves lives under /home. unless one of those configs
+  covers it, nothing there is covered by a snapshot.
+
+  ricepilot cannot take one: a snapshot needs root, and ricepilot never
+  runs sudo. on a btrfs /home this is the command, as root:
+
+  run:
+    snapper -c home create-config /home
+
+not checked, or worth knowing:
+  - profile `new`: <HOME>/rice/new/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: <HOME>/rice/old/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: no manifest has been recorded for it yet, so its tree was not compared with anything
+
+ok: no interrupted operation; 3 owned links intact; the ledger and the manifests agree; 2 hypr trees have an entry file; 1 profile tree matches its recorded manifest; rescue.sh restores generation 0000 and parses; attic: 1 entry, 0 B (the newest, <TS>, 0 B); no verify-config copies; no caelestia theme daemon running

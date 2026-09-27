@@ -1,0 +1,88 @@
+---
+source: tests/doctor.rs
+expression: r.stdout
+---
+ricepilot doctor: 4 problems. nothing was changed; the commands are for you to run.
+
+PROBLEM 1 of 4: <HOME>/.local/state/ricepilot/journal/current.toml
+  an operation was interrupted and has not been recovered.
+  rule: SAFETY.md R5 (never half-applied); DESIGN.md §7, rung 2
+
+  a switch or a rollback into profile `new` (id <TS>) wrote this journal and did not
+  retire it, so it may have stopped part way. it touches:
+    <HOME>/.config/hypr
+    <HOME>/.config/foot
+    <HOME>/.config/btop
+
+  if another ricepilot is running right now, this is its journal: let it
+  finish and run doctor again. otherwise `recover` reads every destination
+  and finishes or undoes the operation as a whole, never half of it. until
+  then, what follows may describe a half-finished state.
+
+  run:
+    # see what recovery would do; this changes nothing
+    ricepilot recover
+    ricepilot recover --commit
+
+PROBLEM 2 of 4: <HOME>/.config/foot
+  is a real directory, not the link ricepilot recorded.
+  rule: SAFETY.md, the ownership predicate; NOT-POSSIBLE.md#real-dir-at-managed-dest
+
+  the ledger recorded a link here to
+    <HOME>/rice/new/foot
+  for profile `new`.
+
+  this is what a rice installer does — caelestia's install.fish and
+  `caelestia install` turn links back into directories — and whatever
+  it wrote is in there. every switch refuses this path until it is
+  resolved, because re-linking it would strand that.
+
+  run:
+    # what is in it, against the tree the link pointed into
+    diff -r <HOME>/rice/new/foot <HOME>/.config/foot
+    # set it aside (nothing is lost), then put the link back
+    mv -T <HOME>/.config/foot <HOME>/.config/foot.set-aside
+    ricepilot plan new
+    ricepilot switch new --commit
+
+PROBLEM 3 of 4: <HOME>/rice/new
+  profile `new`'s tree has changed since it was recorded.
+  rule: SAFETY.md R7; D34
+
+  1 path has changed since ricepilot recorded it at <TS>:
+    changed      hypr/marker
+
+  this is the profile linked now, so these changes are what the next login
+  loads.
+
+  ricepilot never writes into a profile; an app, a script or an editor did.
+  paths an app rewrites on its own belong in `volatile`.
+
+  run:
+    ricepilot verify new
+
+PROBLEM 4 of 4: <HOME>/.local/state/ricepilot/rescue.sh
+  cannot be relied on.
+  rule: DESIGN.md §7, rung 3; D37
+
+  `sh -n` rejects it:
+    <what sh said>
+
+  it is not a script ricepilot wrote.
+
+  it is rung 3 of the recovery ladder, the one for a TTY when nothing else
+  works. do not rely on it as it is.
+
+  run:
+    sh -n <HOME>/.local/state/ricepilot/rescue.sh
+    # rung 1 of the ladder still works; see what it would do
+    ricepilot rollback
+    # the next `switch` or `rollback --commit` writes the script again
+
+not checked, or worth knowing:
+  - profile `new`: <HOME>/rice/new/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: <HOME>/rice/old/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: no manifest has been recorded for it yet, so its tree was not compared with anything
+  - running theme daemons (/proc) and snapper's configuration (/etc/snapper) were not checked: this is the test sandbox (D56)
+
+ok: 2 owned links intact; the ledger and the manifests agree; 2 hypr trees have an entry file; attic: 1 entry, 0 B (the newest, <TS>, 0 B); no verify-config copies

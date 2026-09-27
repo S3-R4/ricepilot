@@ -22,6 +22,10 @@ pub enum ExitCode {
     /// recorded. Not an error: the command did its job, and this is the
     /// answer (D34).
     Drift = 6,
+    /// `doctor` ran correctly and found at least one problem — something in
+    /// ricepilot's own state or its links that needs a human (D57). Hazards
+    /// about the machine alone do not set it. Not an error either.
+    Unhealthy = 7,
 }
 
 #[derive(Debug, thiserror::Error)]

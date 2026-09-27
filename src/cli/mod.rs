@@ -169,6 +169,7 @@ pub fn run(command: Command) -> Result<Output> {
         Command::Init { root, name, commit } => {
             init::run(&paths, root.as_deref(), name.as_deref(), commit)
         }
+        Command::Doctor => Ok(crate::doctor::run(&paths, doctor_system_root())),
 
         // Mutating commands and the remaining read-only ones arrive in later
         // milestones. Saying so and exiting non-zero is the honest answer;
@@ -178,11 +179,21 @@ pub fn run(command: Command) -> Result<Output> {
             why: format!(
                 "`{}` is not implemented yet; M1 ships the read-only commands \
                  plan, status, list and show, M2 adds recover, M3 adds switch, \
-                 rollback, verify and rescue, and M4 adds capture, adopt and init. \
-                 `diff`, `gc` and `doctor` are M5",
+                 rollback, verify and rescue, M4 adds capture, adopt and init, and M5 \
+                 adds doctor. `diff` and `gc` are still to come in M5",
                 subcommand_name(&other)
             ),
         }),
+    }
+}
+
+/// Where `doctor`'s machine-wide checks look: `/`, or nowhere inside the
+/// test sandbox (D56), which only ever takes a capability away. There is no
+/// variable that points them anywhere else.
+fn doctor_system_root() -> Option<std::path::PathBuf> {
+    match std::env::var_os(paths::SANDBOX_VAR) {
+        Some(_) => None,
+        None => Some(std::path::PathBuf::from("/")),
     }
 }
 

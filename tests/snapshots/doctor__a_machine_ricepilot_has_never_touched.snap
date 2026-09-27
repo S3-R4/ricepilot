@@ -1,0 +1,10 @@
+---
+source: tests/doctor.rs
+expression: r.stdout
+---
+ricepilot doctor: no problems. nothing was changed.
+
+not checked, or worth knowing:
+  - running theme daemons (/proc) and snapper's configuration (/etc/snapper) were not checked: this is the test sandbox (D56)
+
+ok: no interrupted operation; no owned links; no switch yet, so no rescue script is needed; attic empty; no verify-config copies

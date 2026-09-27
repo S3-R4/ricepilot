@@ -150,17 +150,20 @@ pub fn current(state: &Path) -> Result<Option<u32>> {
         });
     }
     let text = read::slurp(&p)?;
-    text.trim()
-        .parse::<u32>()
-        .map(Some)
-        .map_err(|_| Error::Refused {
-            rule: "R4",
-            path: current_path(state),
-            why: format!(
-                "the current-generation pointer reads {:?}, which is not a generation number",
-                text.trim()
-            ),
-        })
+    parse_current(&text, &p).map(Some)
+}
+
+/// The number the `current` pointer holds, from its text. Pure; `path` only
+/// names it in the refusal.
+pub fn parse_current(text: &str, path: &Path) -> Result<u32> {
+    text.trim().parse::<u32>().map_err(|_| Error::Refused {
+        rule: "R4",
+        path: path.to_path_buf(),
+        why: format!(
+            "the current-generation pointer reads {:?}, which is not a generation number",
+            text.trim()
+        ),
+    })
 }
 
 /// Point `current` at `id`. Atomic: the pointer names a generation that is
@@ -190,9 +193,14 @@ pub fn load(state: &Path, id: u32) -> Result<Generation> {
         });
     }
     let text = read::slurp(&p)?;
-    toml::from_str(&text).map_err(|e| Error::Refused {
+    parse(&text, &p, id)
+}
+
+/// Generation `id` from its text. Pure; `path` only names it in the refusal.
+pub fn parse(text: &str, path: &Path, id: u32) -> Result<Generation> {
+    toml::from_str(text).map_err(|e| Error::Refused {
         rule: "R4",
-        path: p,
+        path: path.to_path_buf(),
         why: format!("generation {id:04} does not parse: {}", e.message()),
     })
 }

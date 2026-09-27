@@ -1,0 +1,34 @@
+---
+source: tests/doctor.rs
+expression: r.stdout
+---
+ricepilot doctor: 1 problem. nothing was changed; the commands are for you to run.
+
+PROBLEM 1 of 1: <HOME>/.local/share/ricepilot/profiles/mine/profile.toml
+  does not declare ~/.config/hypr, which profile `mine` owns.
+  rule: D51 (a profile's manifest declares every path it owns)
+
+  the ledger records the link
+    <HOME>/.config/hypr -> <HOME>/.local/share/ricepilot/profiles/mine/hypr
+  as profile `mine`'s.
+
+  the manifest has no [[path]] for it — typically because the block
+  `ricepilot adopt` appended was edited out — so the next
+  `ricepilot switch mine` would retire the link into the attic and
+  leave the path empty. put this back at the end of the manifest:
+
+    [[path]]
+    dest       = "~/.config/hypr"
+    src        = "hypr"
+    kind       = "dir-link"
+    activation = "relogin"
+
+  run:
+    # then this must say there is nothing to do for it
+    ricepilot plan mine
+
+not checked, or worth knowing:
+  - profile `mine`: no manifest has been recorded for it yet, so its tree was not compared with anything
+  - running theme daemons (/proc) and snapper's configuration (/etc/snapper) were not checked: this is the test sandbox (D56)
+
+ok: no interrupted operation; 1 owned link intact; rescue.sh restores generation 0000 and parses; attic: 1 entry, 42 B (the newest, <TS>, 42 B); no verify-config copies

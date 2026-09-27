@@ -1,0 +1,108 @@
+---
+source: tests/doctor.rs
+expression: text
+---
+ricepilot doctor: no problems, 7 hazards. nothing was changed; the commands are for you to run.
+
+HAZARD 1 of 7: <HOME>/.local/state/ricepilot/attic
+  has grown to 3.0 GiB in 2 entries; the newest, <TS>, holds 0 B.
+  rule: SAFETY.md R2 (displaced, never deleted)
+
+  everything a switch, rollback or adopt displaced is here, because
+  ricepilot has no delete. the largest:
+    <TS>  3.0 GiB  (1 item)
+    <TS>  0 B  (2 items)
+
+  it can hold your own directories — an adopt moves the original here (D49)
+  — so read what `gc` lists before you answer it.
+
+  run:
+    du -sh <HOME>/.local/state/ricepilot/attic/*
+    # lists what it would remove, and asks for each name to be typed back
+    ricepilot gc
+
+HAZARD 2 of 7: <HOME>/.local/state/ricepilot/verify
+  holds 21 scratch copies, 231 B in all.
+  rule: D55 (the scratch copy stays, as the record of what was parsed)
+
+  every `plan`, `switch` and `rollback` into a profile with a hyprland.conf
+  leaves one. the oldest is <TS>, the newest <TS>. only `gc` reclaims them.
+
+  run:
+    du -sh <HOME>/.local/state/ricepilot/verify
+    ricepilot gc
+
+HAZARD 3 of 7: <HOME>/.local/bin/hypr-session
+  writes into ~/.config/hypr, which ricepilot links.
+  rule: SAFETY.md R3 (nothing writes into a profile) — this script does
+
+  on every call it creates ~/.config/hypr/sessions — through ricepilot's link, so
+  inside a profile's tree. `verify` then reports the profile as changed,
+  and the directory travels with the profile.
+
+  the patch, for you to apply; ricepilot does not edit your scripts:
+    --- <HOME>/.local/bin/hypr-session
+    +++ <HOME>/.local/bin/hypr-session
+    @@ line 3 @@
+    -  export SESSION_DIR="$HOME/.config/hypr/sessions"
+    +  export SESSION_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hypr/sessions"
+
+  run:
+    $EDITOR <HOME>/.local/bin/hypr-session
+
+HAZARD 4 of 7: <HOME>/.local/share/caelestia
+  is the root of `caelestia`, and caelestia-cli migrates from it.
+  rule: NOT-POSSIBLE.md#running-rice-installers
+
+  `caelestia install` and `caelestia update` can delete this whole tree through
+  caelestia-cli's legacy-migration path, and caelestia's install.fish
+  overwrites by deleting first. ricepilot never runs either. if you do, run
+  `ricepilot doctor` afterwards: the links they turn into directories show
+  up as problems.
+
+  run:
+    # what the clone holds that is committed nowhere: the part an installer loses
+    git -C <HOME>/.local/share/caelestia status
+
+HAZARD 5 of 7: /home
+  is not snapshotted.
+  rule: NOT-POSSIBLE.md#snapshotting
+
+  snapper has 1 config for other subvolumes: root.
+
+  everything ricepilot moves lives under /home, and nothing there is covered
+  by a snapshot.
+
+  ricepilot cannot take one: a snapshot needs root, and ricepilot never
+  runs sudo. on a btrfs /home this is the command, as root:
+
+  run:
+    snapper -c home create-config /home
+
+HAZARD 6 of 7: <HOME>/sys/proc/4242
+  `caelestia shell -d` is running (pid 4242).
+  rule: DESIGN.md §3, why `generated` exists
+
+  caelestia's theme engine rewrites its generated files with a temporary
+  file and a rename, which replaces a symlink at any of those paths and
+  changes files inside the profile's tree. expect `verify` to report them,
+  and declare them `generated` or `volatile` in the profile. ricepilot does
+  not stop the shell.
+
+HAZARD 7 of 7: <HOME>/sys/proc/4243
+  `caelestia resizer -d` is running (pid 4243).
+  rule: DESIGN.md §3, why `generated` exists
+
+  caelestia's theme engine rewrites its generated files with a temporary
+  file and a rename, which replaces a symlink at any of those paths and
+  changes files inside the profile's tree. expect `verify` to report them,
+  and declare them `generated` or `volatile` in the profile. ricepilot does
+  not stop the resizer.
+
+not checked, or worth knowing:
+  - profile `new`: <HOME>/rice/new/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: <HOME>/rice/old/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `caelestia`: no manifest has been recorded for it yet, so its tree was not compared with anything
+  - profile `old`: no manifest has been recorded for it yet, so its tree was not compared with anything
+
+ok: no interrupted operation; 3 owned links intact; the ledger and the manifests agree; 2 hypr trees have an entry file; 1 profile tree matches its recorded manifest; rescue.sh restores generation 0000 and parses

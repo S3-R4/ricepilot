@@ -13,6 +13,8 @@
 //!   either; deletion exists only in [`crate::gc`].
 //! * [`exec`]   — the closed allowlist of subprocesses.
 //! * [`lock`]   — `flock(LOCK_EX|LOCK_NB)` held for the process lifetime.
+//! * [`look`]   — the read side as a trait object, for a caller that must be
+//!   handed reading and nothing else (`doctor`, D57).
 //!
 //! `read`, `mutate` and `lock` landed in M2; `exec` has `sh -n` from M3 and
 //! the rest of its allowlist from M5 (D52), with the verify-config sandbox
@@ -20,5 +22,6 @@
 
 pub mod exec;
 pub mod lock;
+pub mod look;
 pub mod mutate;
 pub mod read;

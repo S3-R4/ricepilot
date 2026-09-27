@@ -1,0 +1,12 @@
+---
+source: tests/doctor.rs
+expression: text
+---
+ricepilot doctor: no problems. nothing was changed.
+
+not checked, or worth knowing:
+  - profile `new`: <HOME>/rice/new/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: <HOME>/rice/old/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: no manifest has been recorded for it yet, so its tree was not compared with anything
+
+ok: no interrupted operation; 3 owned links intact; the ledger and the manifests agree; 2 hypr trees have an entry file; 1 profile tree matches its recorded manifest; rescue.sh restores generation 0000 and parses; attic: 1 entry, 0 B (the newest, <TS>, 0 B); no verify-config copies; /home has a snapper config (`home`); no caelestia theme daemon running

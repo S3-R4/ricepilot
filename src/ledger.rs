@@ -158,7 +158,12 @@ pub fn load(path: &Path) -> Result<Ledger> {
         return Ok(Ledger::default());
     }
     let text = read::slurp(path)?;
-    toml::from_str(&text).map_err(|e| Error::Refused {
+    parse(&text, path)
+}
+
+/// The ledger from its text. Pure; `path` only names it in the refusal.
+pub fn parse(text: &str, path: &Path) -> Result<Ledger> {
+    toml::from_str(text).map_err(|e| Error::Refused {
         rule: "R4",
         path: path.to_path_buf(),
         why: format!(

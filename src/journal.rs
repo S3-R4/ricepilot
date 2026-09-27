@@ -340,12 +340,17 @@ pub fn read_current(path: &Path) -> Result<Option<Journal>> {
         return Ok(None);
     }
     let text = read::slurp(path)?;
-    let journal: Journal = toml::from_str(&text).map_err(|e| Error::Refused {
+    parse(&text, path).map(Some)
+}
+
+/// A journal — in flight or retired — from its text. Pure; `path` only names
+/// it in the refusal.
+pub fn parse(text: &str, path: &Path) -> Result<Journal> {
+    toml::from_str(text).map_err(|e| Error::Refused {
         rule: "R4",
         path: path.to_path_buf(),
         why: format!("journal does not parse: {}", e.message()),
-    })?;
-    Ok(Some(journal))
+    })
 }
 
 /// Retire a finished journal by renaming it to `done-<id>.toml`.

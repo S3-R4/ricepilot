@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::ops::look::{Live, Look};
 use crate::ops::{mutate, read};
 use crate::{Error, Result};
 
@@ -233,9 +234,9 @@ fn hex(hash: &blake3::Hash) -> String {
     hash.to_hex().to_string()
 }
 
-fn hash_file(path: &Path) -> Result<String> {
+fn hash_file(look: &dyn Look, path: &Path) -> Result<String> {
     let mut hasher = blake3::Hasher::new();
-    read::read_into(path, &mut |chunk| {
+    look.read_into(path, &mut |chunk| {
         hasher.update(chunk);
     })?;
     Ok(hex(&hasher.finalize()))
@@ -244,8 +245,8 @@ fn hash_file(path: &Path) -> Result<String> {
 /// A symlink is hashed by its **target string**, byte for byte, exactly as
 /// `readlinkat` returned it. Following it would make the hash a statement
 /// about a different tree.
-fn hash_link(path: &Path) -> Result<String> {
-    let target = read::readlink(path)?;
+fn hash_link(look: &dyn Look, path: &Path) -> Result<String> {
+    let target = look.readlink(path)?;
     Ok(hex(&blake3::hash(target.as_os_str().as_encoded_bytes())))
 }
 
@@ -259,8 +260,21 @@ pub fn build(
     volatile: &[String],
     created: impl Into<String>,
 ) -> Result<TreeManifest> {
+    build_via(&Live, profile, root, volatile, created)
+}
+
+/// [`build`], reading through `look`. The one walk: `doctor`, which may only
+/// read (D57), uses this rather than a copy of it, so the tree it compares is
+/// built exactly the way the recorded one was.
+pub fn build_via(
+    look: &dyn Look,
+    profile: &str,
+    root: &Path,
+    volatile: &[String],
+    created: impl Into<String>,
+) -> Result<TreeManifest> {
     let mut entries = Vec::new();
-    walk(root, Path::new(""), volatile, &mut entries)?;
+    walk(look, root, Path::new(""), volatile, &mut entries)?;
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(TreeManifest {
         profile: profile.to_string(),
@@ -271,28 +285,34 @@ pub fn build(
     })
 }
 
-fn walk(root: &Path, rel: &Path, volatile: &[String], out: &mut Vec<FileEntry>) -> Result<()> {
+fn walk(
+    look: &dyn Look,
+    root: &Path,
+    rel: &Path,
+    volatile: &[String],
+    out: &mut Vec<FileEntry>,
+) -> Result<()> {
     let here = if rel.as_os_str().is_empty() {
         root.to_path_buf()
     } else {
         root.join(rel)
     };
-    for name in read::list_dir(&here)? {
+    for name in look.list_dir(&here)? {
         let child_rel = rel.join(&name);
         let rel_str = child_rel.to_string_lossy().into_owned();
         if is_volatile(volatile, &rel_str) {
             continue;
         }
         let path = root.join(&child_rel);
-        let meta = match read::lstat(&path)? {
+        let meta = match look.lstat(&path)? {
             Some(m) => m,
             // Something went away between the listing and the stat. Recording
             // nothing for it is the honest answer: it is not there now.
             None => continue,
         };
         let (kind, hash) = match meta.kind {
-            read::Kind::File => (EntryKind::File, Some(hash_file(&path)?)),
-            read::Kind::Symlink => (EntryKind::Symlink, Some(hash_link(&path)?)),
+            read::Kind::File => (EntryKind::File, Some(hash_file(look, &path)?)),
+            read::Kind::Symlink => (EntryKind::Symlink, Some(hash_link(look, &path)?)),
             read::Kind::Dir => (EntryKind::Dir, None),
             // A socket or a fifo in a config tree is recorded as present with
             // no hash rather than skipped: "there is something here I cannot
@@ -309,7 +329,7 @@ fn walk(root: &Path, rel: &Path, volatile: &[String], out: &mut Vec<FileEntry>) 
             mtime_ns: meta.mtime_ns,
         });
         if meta.kind == read::Kind::Dir {
-            walk(root, &child_rel, volatile, out)?;
+            walk(look, root, &child_rel, volatile, out)?;
         }
     }
     Ok(())
@@ -409,10 +429,15 @@ pub fn load(path: &Path) -> Result<Option<TreeManifest>> {
         return Ok(None);
     }
     let text = read::slurp(path)?;
-    let m: TreeManifest = toml::from_str(&text).map_err(|e| Error::Refused {
+    parse(&text, path).map(Some)
+}
+
+/// The recorded manifest from its text. Pure; `path` only names it in the
+/// refusal.
+pub fn parse(text: &str, path: &Path) -> Result<TreeManifest> {
+    toml::from_str(text).map_err(|e| Error::Refused {
         rule: "R4",
         path: path.to_path_buf(),
         why: format!("the recorded manifest does not parse: {}", e.message()),
-    })?;
-    Ok(Some(m))
+    })
 }

@@ -1403,3 +1403,122 @@ forbids that. The lexical "below the root" check cannot see a symlink placed
 (D9) and the harness's canonical check covers the fixture homes. Neither
 `HOME` nor anything else stops a developer running the real binary by hand;
 that was never a test, and R1 governs it by rule.
+
+## D57 — `doctor` is read-only by construction, reports problems before hazards, and exits 7
+
+*M5.* `doctor` is the command someone runs when they already think something
+is wrong — possibly while a switch is stuck, possibly from a TTY. Four calls.
+
+**By construction, not by care.** Rust cannot stop one module naming
+another, so "read-only" is made structural in three layers:
+
+* `src/ops/look.rs` defines `Look`, a trait whose every method reads —
+  `lstat`, `readlink`, `resolves`, `list_dir`, `slurp`, `read_into`,
+  `size_of` — or runs one of the two read-only subprocesses, `pacman -Q` and
+  `sh -n`. Its one implementation, `Live`, is one call per method into
+  `ops::read` or `ops::exec::run` with `Call::PacmanQuery` /
+  `Call::ShSyntaxCheck`. There is no method that creates, renames, writes,
+  locks, or starts anything else.
+* `doctor::diagnose(&dyn Look, &Where) -> Report` learns about the machine
+  only through that value. The pieces of other modules it reuses were
+  re-pointed at a `Look` rather than copied, so there is still one tree walk
+  (`verify::build_via`), one requires-check (`requires::missing_via`) and one
+  rescue-script generator (`rescue::Binaries::locate_via` + the pure
+  `rescue::script`); the old entry points call them with `Live` and behave
+  exactly as before. The loaders doctor needed (ledger, generation,
+  `current`, journal, recorded manifest) gained pure `parse(text, path)`
+  functions, which the loaders now call.
+* `tests/doctor.rs` checks the sources textually. Every `crate::` path in
+  `src/doctor.rs` and `src/doctor/` must be on a list of pure items
+  (types, constants, path computations, parsers of text already read, and
+  the three `*_via` readers); a grouped import is refused so nothing hides
+  behind braces; and words naming a mutation or a read around `Look` —
+  `mutate`, `lock::`, `write_atomic`, `journal::write`, `mark_done`, `::save`,
+  `regenerate`, `SandboxedConfig`, `hyprverify::check`, `exec::`, `Call::`,
+  `ops::read`, `std::process`, `std::env`, `.record(`, `.observe(` — may not
+  appear at all, prose included, as with D3. `src/ops/look.rs` gets the same
+  treatment with its own list. A third test plants a write, a grouped import
+  and a forbidden word and shows the check catches each. The methods of the
+  values doctor holds (`Ledger`, `Generation`, `Manifest`, `Journal`,
+  `TreeManifest`) were audited: none writes, and the two that read around
+  `Look` are on the forbidden list.
+
+So doctor takes no lock (a test runs it while the lock is held, and it
+answers), builds no verify-config scratch copy — a `hyprland.conf` is
+reported "not checked by doctor; `ricepilot plan` runs the sandboxed
+verify-config", a `hyprland.lua` as uncheckable, whatever `hypr_dialect`
+says — and starts no `hyprctl`. The gate test takes `(dev, ino, mtime_ns)` of
+every path in each fixture (home, state, profile payloads, rice trees, the
+fixture's stand-in `/`) before and after every doctor run in the suite and
+fails on any difference, including a path that appeared.
+
+**What it reports, and in which order.** Problems first, because they are
+ricepilot's own state and a human must act: an in-flight journal (first of
+all — until `recover` runs, everything else may describe a half-finished
+state), a profile or ledger or generation that does not parse, each owned
+link that is gone, is a real directory or a file, points elsewhere, is a
+different inode, points outside every registered root, or dangles; a ledger
+row whose profile's manifest no longer declares it, declares it as something
+that is not a link, or declares another `src` (D51 — the next switch would
+retire or re-point it); the adopt-then-rollback state (D49), found from the
+retired journals' `Adopt` records: the destination is empty, nobody owns it,
+and the user's directory is — or is no longer — at `attic/<id>/<path>`; a
+declared source that is missing; a tree linked at `~/.config/hypr` with
+neither `hyprland.conf` nor `hyprland.lua` (Hyprland would write a default
+config into the profile); drift of any profile with a recorded manifest,
+through the same walk and comparison `verify` uses; `rescue.sh` missing when
+a generation is current, not a regular file, rejected by `sh -n`, or not the
+exact text a switch would write now for generation N-1; and requires of the
+*live* profile that are not installed. Requires missing for another profile
+are a note — `switch` refuses them when it matters, and a spare profile
+should not keep doctor red.
+
+Then hazards: standing facts about the machine that ricepilot works around
+and cannot change — `/home` with no snapper config (with the root-only
+`snapper -c home create-config /home`, printed, never run; a config doctor
+cannot read makes it "may not be snapshotted" and names
+`snapper list-configs`), `~/.local/bin/hypr-session` writing a `SESSION_DIR`
+into `~/.config/hypr` once ricepilot manages that path (with the patch, as a
+unified diff of the one line, never applied), `caelestia shell -d` /
+`caelestia resizer -d` running (from `/proc/*/cmdline`), a profile rooted at
+`~/.local/share/caelestia` (caelestia-cli's migration can delete it), an
+attic over 1 GiB or 100 entries, and more than 20 verify-config copies
+(D55). Then notes — what was not checked and why — and every passing check
+folded into a single `ok:` line.
+
+Each finding prints its path, one clause saying what is wrong, the rule, the
+observation, and shell lines to run, with `#` comments saying which is which.
+The printed commands are chosen to be safe to paste: dry runs before
+`--commit`, `mv -T x x.set-aside` rather than anything that removes, `diff`
+before either. `adopt` is not suggested for a real directory at an owned
+destination: the profile already declares that path, and adopt would refuse
+the duplicate.
+
+Text is broken by hand, never wrapped to a width: a wrap point that depends on
+how long a path is would make two checkouts' reports differ.
+
+**Exit status: 0, or 7 (`Unhealthy`).** 7 when at least one problem was
+found; 0 otherwise, hazards included. Not `Drift` (6), which says "this
+profile changed" — doctor reports drift among other things, and a script that
+distinguishes the two should be able to. Not an error either, for D34's
+reason: doctor ran and this is its answer. Hazards do not set it because they
+are true on every run until the user changes the machine, and a status that
+is never 0 is one nobody reads. Nothing doctor fails to read is fatal: every
+check turns its own failure into a finding or a note, and the rest carry on.
+
+**The machine-wide checks take a root, and the sandbox takes it away.**
+`/proc` and `/etc/snapper` are read under `Where::system`. The CLI passes `/`,
+or `None` inside the test sandbox (D56) — which skips them and says so — so
+no test reads the real machine's processes or snapper configuration. The
+tests of those checks call `diagnose` in-process with a fixture directory as
+the root: a value, not a variable, so nothing a user can set points doctor
+anywhere else. `hypr-session` and the caelestia root are under the home and
+are always checked.
+
+What is not covered: doctor cannot tell a stuck switch from a running one
+(it would need the lock), so the journal finding says to wait if another
+ricepilot is running. The theme-daemon match is on argv (`caelestia` then
+`shell`/`resizer` then `-d`/`--daemon`); a daemon started some other way is
+not seen. The `SESSION_DIR` patch is offered only for an assignment it can
+read; a script that builds the path otherwise is reported with the line and
+no patch.

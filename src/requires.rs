@@ -18,7 +18,8 @@
 
 use std::path::PathBuf;
 
-use crate::ops::exec::{self, Allowed, Call};
+use crate::ops::exec;
+use crate::ops::look::{Live, Look};
 use crate::{Error, Result};
 
 /// The names in `packages` that `pacman -Q` could not find, in the order
@@ -29,6 +30,12 @@ use crate::{Error, Result};
 /// completed, and a switch whose pre-flight was not completed does not happen
 /// (`SAFETY.md` R4).
 pub fn missing(packages: &[String]) -> Result<Vec<String>> {
+    missing_via(&Live, packages)
+}
+
+/// [`missing`], asking through `look`. The one requires-check: `doctor`,
+/// which may only read (D57), uses this rather than a copy of it.
+pub fn missing_via(look: &dyn Look, packages: &[String]) -> Result<Vec<String>> {
     let mut wanted: Vec<&str> = Vec::new();
     for p in packages {
         if !wanted.contains(&p.as_str()) {
@@ -38,13 +45,13 @@ pub fn missing(packages: &[String]) -> Result<Vec<String>> {
     if wanted.is_empty() {
         return Ok(Vec::new());
     }
-    if exec::locate(Allowed::PacmanQuery)?.is_none() {
+    if !look.pacman_found()? {
         return Err(uncheckable(packages));
     }
 
     let mut out = Vec::new();
     for package in wanted {
-        let ran = exec::run(Call::PacmanQuery { package })?;
+        let ran = look.pacman_query(package)?;
         match ran.code {
             Some(0) => {}
             // Under `LC_ALL=C` (D52) this is pacman's one sentence for a name
