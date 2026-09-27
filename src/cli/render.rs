@@ -53,17 +53,14 @@ pub fn plan_with(
                 let _ = writeln!(s, "  {op}");
             }
             let _ = writeln!(s);
-            let _ = writeln!(
-                s,
-                "nothing has been changed. re-run with --commit to apply."
-            );
+            let _ = writeln!(s, "{} re-run with --commit to apply.", unchanged(hypr));
             let _ = writeln!(
                 s,
                 "a switch takes effect at the next login; it does not touch the running session."
             );
         }
         Plan::Decline { refusals } => {
-            let _ = writeln!(s, "declined. nothing has been changed.");
+            let _ = writeln!(s, "declined. {}", unchanged(hypr));
             let _ = writeln!(s);
             let _ = write!(s, "{}", refusal_list(refusals));
         }
@@ -552,7 +549,7 @@ pub fn switch_header(
             }
         }
         Plan::Decline { refusals } => {
-            let _ = writeln!(s, "declined. nothing has been changed.");
+            let _ = writeln!(s, "declined. {}", unchanged(hypr));
             let _ = writeln!(s);
             let _ = write!(s, "{}", refusal_list(refusals));
         }
@@ -674,9 +671,28 @@ pub fn drift_block(drift: Option<&Drift>, kind: super::switch::Kind, strict: boo
 /// The dry-run tail. Says what did not happen, and what a switch does and does
 /// not reach — a user who expects their session to change is a user who will
 /// conclude the tool did not work.
-pub const UNCOMMITTED: &str = "\nnothing has been changed. re-run with --commit to apply.\n\
-a switch is an on-disk relink: it takes effect at the next login and does not touch\nthe running \
-session.\n";
+pub fn uncommitted(hypr: Option<&Outcome>) -> String {
+    format!(
+        "\n{} re-run with --commit to apply.\n\
+         a switch is an on-disk relink: it takes effect at the next login and does not touch\n\
+         the running session.\n",
+        unchanged(hypr)
+    )
+}
+
+/// What a plan that stopped short of `--commit` left behind: nothing — or,
+/// when the verify-config pre-flight ran, the scratch copy it wrote under
+/// `state/verify/` (D55), which is a write, and is said to be one (D75). It
+/// is in ricepilot's own state, never the user's config, and `gc` removes it.
+fn unchanged(hypr: Option<&Outcome>) -> String {
+    match hypr.and_then(Outcome::scratch) {
+        None => "nothing has been changed.".into(),
+        Some(p) => format!(
+            "no link has been changed; a verify-config scratch copy was written to {}.",
+            p.display()
+        ),
+    }
+}
 
 /// The committed tail: what happened, where the displaced things are, and the
 /// two ways back.

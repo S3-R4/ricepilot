@@ -358,7 +358,7 @@ pub fn run_with(
     if !commit {
         return Ok(Outcome {
             output: Output {
-                text: header + render::UNCOMMITTED,
+                text: header + &render::uncommitted(hypr.as_ref()),
                 code: ExitCode::Ok,
             },
             ended: Ended::DryRun,

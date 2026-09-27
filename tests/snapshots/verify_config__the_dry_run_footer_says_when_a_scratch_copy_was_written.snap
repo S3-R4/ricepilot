@@ -1,0 +1,53 @@
+---
+source: tests/verify_config.rs
+expression: s
+---
+--- no hypr config
+plan:
+nothing has been changed. re-run with --commit to apply.
+plan, declined:
+declined. nothing has been changed.
+switch dry run:
+nothing has been changed. re-run with --commit to apply.
+a switch is an on-disk relink: it takes effect at the next login and does not touch
+the running session.
+
+--- parsed
+plan:
+no link has been changed; a verify-config scratch copy was written to /home/u/.local/state/ricepilot/verify/20260927T120000Z. re-run with --commit to apply.
+plan, declined:
+declined. no link has been changed; a verify-config scratch copy was written to /home/u/.local/state/ricepilot/verify/20260927T120000Z.
+switch dry run:
+no link has been changed; a verify-config scratch copy was written to /home/u/.local/state/ricepilot/verify/20260927T120000Z. re-run with --commit to apply.
+a switch is an on-disk relink: it takes effect at the next login and does not touch
+the running session.
+
+--- did not parse
+plan:
+no link has been changed; a verify-config scratch copy was written to /home/u/.local/state/ricepilot/verify/20260927T120000Z. re-run with --commit to apply.
+plan, declined:
+declined. no link has been changed; a verify-config scratch copy was written to /home/u/.local/state/ricepilot/verify/20260927T120000Z.
+switch dry run:
+no link has been changed; a verify-config scratch copy was written to /home/u/.local/state/ricepilot/verify/20260927T120000Z. re-run with --commit to apply.
+a switch is an on-disk relink: it takes effect at the next login and does not touch
+the running session.
+
+--- refused before a copy was made
+plan:
+nothing has been changed. re-run with --commit to apply.
+plan, declined:
+declined. nothing has been changed.
+switch dry run:
+nothing has been changed. re-run with --commit to apply.
+a switch is an on-disk relink: it takes effect at the next login and does not touch
+the running session.
+
+--- not checked
+plan:
+nothing has been changed. re-run with --commit to apply.
+plan, declined:
+declined. nothing has been changed.
+switch dry run:
+nothing has been changed. re-run with --commit to apply.
+a switch is an on-disk relink: it takes effect at the next login and does not touch
+the running session.

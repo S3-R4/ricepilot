@@ -2602,3 +2602,29 @@ link is untouched) and a fifo, each through `lock::acquire` and through
 `ricepilot recover`, whose dry run takes the lock; both refusals are
 snapshotted. The owner check is not exercised: a file owned by someone else
 cannot be made in a fixture without privileges.
+
+## D75 — A dry run that wrote a verify-config scratch copy says so instead of "nothing has been changed"
+
+*M5, residual gap after red-team #2 finding 8.* `plan`, and every `switch`
+and `rollback` without `--commit`, run the verify-config pre-flight so that
+the plan printed is the one `--commit` would act on (D55). When a config is
+copied into the sandbox, that copy is written to `state/verify/<id>/` and
+kept. The footer still said "nothing has been changed" — and "declined.
+nothing has been changed." on a decline — which RECOVERY.md and README had
+already been corrected about (finding 8), but the output itself had not.
+
+The footer now comes from the pre-flight's outcome
+(`hyprverify::Outcome::scratch`): with no copy written (no Hyprland config,
+Lua, no `Hyprland`, a config refused before it was copied) it reads as
+before, byte for byte; with one, "no link has been changed; a
+verify-config scratch copy was written to <path>." — in the dry-run tail of
+`switch`/`rollback`, in `plan`'s, and on either's decline, `--commit`
+declines included. A sentence, not a second block: the `hypr config:`
+block above already names the copy, and the footer's job is only not to
+contradict it. "No link" rather than "nothing else", because the process
+lock and the state directories may also be created by a first run, which
+the old wording never counted either.
+
+No existing snapshot moved: no test reaches a written copy through the CLI,
+since that means running `Hyprland` (R1). The footer is snapshotted from
+each outcome in `tests/verify_config.rs`.

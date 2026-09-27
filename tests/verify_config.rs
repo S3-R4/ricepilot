@@ -117,6 +117,77 @@ fn the_hypr_config_block_in_every_form() {
     insta::assert_snapshot!(s);
 }
 
+/// A dry run's footer says "nothing has been changed" only when nothing
+/// was: when the verify-config pre-flight wrote its scratch copy under
+/// `state/verify/`, it says so and where (D75). Rendered from each outcome,
+/// since the CLI reaches a parsed or failed-after-copying config only by
+/// running `Hyprland`, which no test here does.
+#[test]
+fn the_dry_run_footer_says_when_a_scratch_copy_was_written() {
+    let conf = PathBuf::from("/home/u/rice/new/hypr/hyprland.conf");
+    let scratch = PathBuf::from("/home/u/.local/state/ricepilot/verify/20260927T120000Z");
+    let outcomes = [
+        ("no hypr config", None),
+        (
+            "parsed",
+            Some(Outcome::Parsed {
+                config: conf.clone(),
+                scratch: scratch.clone(),
+                files: 1,
+                stripped: 0,
+            }),
+        ),
+        (
+            "did not parse",
+            Some(Outcome::Failed {
+                config: conf.clone(),
+                scratch: Some(scratch.clone()),
+                detail: "Hyprland reported: …".into(),
+            }),
+        ),
+        (
+            "refused before a copy was made",
+            Some(Outcome::Failed {
+                config: conf.clone(),
+                scratch: None,
+                detail: "it could not be copied into a sandbox".into(),
+            }),
+        ),
+        (
+            "not checked",
+            Some(Outcome::NotChecked {
+                config: conf.clone(),
+                why: NotChecked::NoHyprland,
+            }),
+        ),
+    ];
+    let mut s = String::new();
+    for (what, o) in &outcomes {
+        let o = o.as_ref();
+        let apply = render::plan_with("new", &[], o, &Plan::Apply { ops: vec![] });
+        let decline = render::plan_with("new", &[], o, &Plan::Decline { refusals: vec![] });
+        let footer = |t: &str| {
+            t.lines()
+                .filter(|l| l.contains("changed"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        s.push_str(&format!(
+            "--- {what}\nplan:\n{}\nplan, declined:\n{}\nswitch dry run:\n{}\n",
+            footer(&apply),
+            footer(&decline),
+            render::uncommitted(o).trim_start()
+        ));
+        let scratch_said = footer(&apply).contains("scratch copy was written");
+        assert_eq!(
+            scratch_said,
+            o.and_then(Outcome::scratch).is_some(),
+            "{what}: {apply}"
+        );
+    }
+    insta::assert_snapshot!(s);
+}
+
 /// A profile with no Hyprland config prints no block at all, so every
 /// existing plan reads exactly as it did.
 #[test]

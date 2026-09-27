@@ -71,6 +71,17 @@ pub enum NotChecked {
 }
 
 impl Outcome {
+    /// The scratch copy this pre-flight wrote under `state/verify/`, if it
+    /// wrote one: a dry run that says "nothing has been changed" must not
+    /// have written one (D75).
+    pub fn scratch(&self) -> Option<&Path> {
+        match self {
+            Outcome::Parsed { scratch, .. } => Some(scratch),
+            Outcome::Failed { scratch, .. } => scratch.as_deref(),
+            Outcome::NotChecked { .. } => None,
+        }
+    }
+
     /// The refusal this outcome makes, if it makes one.
     pub fn failure(&self) -> Option<(PathBuf, String)> {
         match self {
