@@ -2187,3 +2187,60 @@ run in order, in a clone under `target/fixtures/`, with makepkg's
 package tree holds the binary, the README and the docs. That run is what
 found D64. Not exercised: makepkg's own source download and extraction,
 `fakeroot`, stripping, and `pacman -U`.
+
+## D66 — RECOVERY.md documents `rescue.sh` as it behaves, and the greeter's plain entry as it is
+
+*M5.* `docs/RECOVERY.md` is written for someone at a TTY, so every step in it
+was checked against the code, and the ones that could be were run by hand
+in a fixture under `target/fixtures/` through the real binary and a real
+`/bin/sh`. Three things turned up that the design text had put more
+simply than they are. The document describes the behaviour; the code is
+unchanged, and the first two are left for the red-team to judge.
+
+**`rescue.sh` restores only what the older generation recorded.**
+`switch` writes the script from generation `NNNN-1` alone, and a generation
+records the destinations of its own switch. A destination only the current
+profile links is in no older record, so the script neither restores nor
+displaces it, and it stays linked into the profile being left — where
+`rollback`, which also reads the ledger, would retire it (D36). The switch's
+own output calls the script "the same thing" as `rollback --commit`; for
+that destination it is not. DESIGN §7 and D37 said "a destination the
+restored generation did not have is displaced"; DESIGN now says "recorded
+as empty", and the recovery text says how to find such a link
+(`ricepilot status` against the script's `# /…` comment lines, or
+`ls -l ~/.config`) and set it aside by hand.
+
+**After `rescue.sh`, ricepilot's records are out of step, and `doctor`'s
+advice points the wrong way.** The script updates no ledger and no
+generation, so every link it restored fails fact 3 of the ownership
+predicate: `doctor` reports each as re-pointed, and `switch` and
+`rollback` refuse them. `doctor`'s printed fix for a re-pointed link is to
+set it aside and `switch` to the profile the ledger names — after a rescue,
+the profile the user just escaped. RECOVERY.md gives the sequence that was
+run and ends clean instead: set each restored link aside, then
+`rollback --commit`, which re-applies the same generation the script did and
+records it; a link set aside because only the newer profile had it is then
+retired as no longer managed.
+
+**The greeter's plain `Hyprland` entry is not "immune to anything in
+`$HOME`".** `/usr/share/wayland-sessions/hyprland.desktop` runs
+`/usr/bin/start-hyprland`; the uwsm entry runs `uwsm start -e -D Hyprland
+hyprland.desktop`, which starts the same thing through uwsm. Skipping uwsm
+means `~/.config/uwsm` is not read, but Hyprland still reads
+`~/.config/hypr` — so the plain entry helps when the uwsm layer is what
+broke, and safe mode (`Hyprland --safe-mode`, or `start-hyprland`'s relaunch
+after a crash, which Hyprland 0.55.4 announces as "Safe mode prevents your
+config from being loaded") is what helps when the Hyprland config is. DESIGN
+§7's rungs 4 and 5 now say so. AGENT_PROMPT §1 listed the stronger claim
+among the verified machine facts; it is corrected here rather than there,
+since that brief is the user's.
+
+The order of RECOVERY.md is by how much each step changes: getting a shell
+and reading (`doctor`, `status`, the logs) change nothing; `recover` only
+finishes what a journal already committed to; `rollback` is a journalled
+switch; `rescue.sh` works outside ricepilot's records; moving a directory
+out of the attic by hand is the last resort. Every command it prints moves
+or links, none removes, and it tells the reader not to run `gc --commit`
+while recovering. What was not tried — `uwsm stop` and
+`loginctl terminate-session` ending a real session, Hyprland's safe mode,
+SDDM's return to the greeter, the log locations — is listed at its end.

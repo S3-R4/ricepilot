@@ -240,11 +240,24 @@ Each rung works when the one above it does not:
    It deliberately does **not** `set -e`: each destination is an independent
    `if … else echo FAILED … fi`, so one path it cannot restore does not cost
    the user the ones it can (D37). It has no delete either, so a destination
-   the restored generation did not have is displaced into
-   `state/attic/rescue-NNNN/`.
-4. TTY (F2–F6) → `Hyprland --safe-mode`.
-5. Log out to the greeter, whose plain `Hyprland` session entry is immune to
-   anything in `$HOME`.
+   the restored generation recorded as empty is displaced into
+   `state/attic/rescue-NNNN/`. A destination that generation has no record
+   of at all — one only a later profile linked — is not in the script and is
+   left as it is, where `rollback`, which reads the ledger, retires it.
+   Nor does the script update the ledger or the generations, so ricepilot
+   afterwards sees the links it restored as links it did not make
+   ([RECOVERY.md](RECOVERY.md#5-without-ricepilot-rescuesh)).
+4. TTY (F2–F6) → `Hyprland --safe-mode`, which does not load the user's
+   config. `start-hyprland` — what both of the greeter's Hyprland entries
+   run — relaunches in safe mode by itself after a crash.
+5. Log out to the greeter and pick its plain `Hyprland` session entry. It runs
+   `start-hyprland` without uwsm, so nothing in `~/.config/uwsm` is read.
+   Hyprland itself still reads `~/.config/hypr`: this rung is for a broken
+   uwsm layer, and rung 4's safe mode is the one for a broken Hyprland
+   config.
+
+[RECOVERY.md](RECOVERY.md) is this ladder written for the person at the
+TTY, with every command spelled out.
 
 `~/.local/state/ricepilot/attic/` still holds everything that was displaced,
 because nothing is deleted except by `gc`, and `gc` keeps anything it cannot
