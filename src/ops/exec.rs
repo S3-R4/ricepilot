@@ -34,8 +34,10 @@
 //! * **From `/`**, so no child inherits ricepilot's working directory and
 //!   discovers something (a git repository, a config file) by accident.
 //! * **Under a timeout and an output cap** ([`Allowed::timeout`],
-//!   [`OUTPUT_CAP`]). A child that overruns is killed; output past the cap is
-//!   drained and discarded, and the [`Ran`] says it was.
+//!   [`OUTPUT_CAP`]). A child that overruns is killed, and so is everything
+//!   it started: each child leads a process group of its own, and the group
+//!   is what is killed (D54). Output past the cap is drained and discarded,
+//!   and the [`Ran`] says it was.
 //!
 //! # The two entries that are not ordinary queries
 //!
@@ -53,6 +55,7 @@
 
 use std::ffi::OsString;
 use std::io::{Read, Write as _};
+use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -413,6 +416,29 @@ fn run_within(call: Call<'_>, limit: Duration) -> Result<Ran> {
         cmd.env(k, v);
     }
     let input = call.stdin().map(<[u8]>::to_vec);
+    supervise(cmd, &program, &call.describe(), input, limit)
+}
+
+/// Start `cmd` and see it through: stdin fed, both pipes drained, the
+/// deadline enforced. Everything [`run`] does after it has decided *what* to
+/// run, split out so the timeout path can be tested against a child that does
+/// more than `sh -n` ever will.
+///
+/// The child is started as the leader of **a process group of its own**, and
+/// a child that overruns is killed as a group (D54). Killing only the direct
+/// child would leave anything it had started — a `sleep` behind `&`, a
+/// daemon an `exec =` line forked — running with ricepilot's pipes still
+/// open, after ricepilot had reported the call as ended. `process_group(0)`
+/// is `setpgid(0, 0)` in the child between fork and exec, done by std; no
+/// unsafe is involved.
+fn supervise(
+    mut cmd: Command,
+    program: &Path,
+    describe: &str,
+    input: Option<Vec<u8>>,
+    limit: Duration,
+) -> Result<Ran> {
+    cmd.process_group(0);
     cmd.stdin(if input.is_some() {
         Stdio::piped()
     } else {
@@ -421,7 +447,6 @@ fn run_within(call: Call<'_>, limit: Duration) -> Result<Ran> {
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-    let describe = call.describe();
     let mut child = cmd.spawn().map_err(|source| Error::Io {
         context: format!("starting {describe} ({})", program.display()),
         source,
@@ -444,11 +469,20 @@ fn run_within(call: Call<'_>, limit: Duration) -> Result<Ran> {
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if Instant::now() >= deadline => {
+                // The group first, while the leader is still unreaped: its
+                // pid cannot be reused as long as it is a zombie, so the group
+                // id cannot name anybody else's processes. ESRCH (the whole
+                // group already gone) is not a failure.
+                let _ = rustix::process::kill_process_group(
+                    rustix::process::Pid::from_child(&child),
+                    rustix::process::Signal::KILL,
+                );
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(Error::Io {
                     context: format!(
-                        "{describe} did not finish within {}s and was killed",
+                        "{describe} did not finish within {}s and was killed, with every \
+                         process it had started",
                         limit.as_secs()
                     ),
                     source: std::io::Error::from(std::io::ErrorKind::TimedOut),
@@ -467,7 +501,7 @@ fn run_within(call: Call<'_>, limit: Duration) -> Result<Ran> {
     let (stdout, t_out) = collect(out);
     let (stderr, t_err) = collect(err);
     Ok(Ran {
-        program,
+        program: program.to_path_buf(),
         code: status.code(),
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
@@ -609,5 +643,128 @@ mod tests {
             }
             other => panic!("expected a timeout, got {other}"),
         }
+    }
+
+    /// A scratch directory for the process-group tests, under the repo's
+    /// `target/fixtures/` like every other fixture (D5).
+    fn pgroup_fixture(case: &str) -> PathBuf {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target/fixtures/m5")
+            .join(case);
+        crate::ops::mutate::make_dirs(&dir).unwrap();
+        dir
+    }
+
+    /// `sh -c` that starts a long `sleep` in the background, writes its pid
+    /// down and waits on it — a child with a grandchild, which is what an
+    /// `exec =` line or a wedged helper looks like from here.
+    fn with_a_grandchild(pidfile: &Path) -> Command {
+        let mut cmd = Command::new(SH);
+        cmd.arg("-c")
+            .arg(format!(
+                "sleep 30 & echo $! > '{}'; wait",
+                pidfile.display()
+            ))
+            .env_clear()
+            .current_dir("/");
+        cmd
+    }
+
+    fn grandchild(pidfile: &Path) -> rustix::process::Pid {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Ok(text) = read::slurp(pidfile) {
+                if let Ok(n) = text.trim().parse::<i32>() {
+                    return rustix::process::Pid::from_raw(n).unwrap();
+                }
+            }
+            assert!(Instant::now() < deadline, "the grandchild never started");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Whether `pid` is still a live process. A zombie awaiting its reaper
+    /// counts as gone: it runs nothing and holds nothing open.
+    fn alive(pid: rustix::process::Pid) -> bool {
+        if rustix::process::test_kill_process(pid).is_err() {
+            return false;
+        }
+        let stat = read::slurp(&PathBuf::from(format!(
+            "/proc/{}/stat",
+            pid.as_raw_nonzero()
+        )))
+        .unwrap_or_default();
+        // `pid (comm) S …`: the state is the first field after the `)`.
+        !matches!(
+            stat.rsplit_once(')').map(|(_, rest)| rest.trim_start()),
+            Some(r) if r.starts_with('Z') || r.starts_with('X')
+        )
+    }
+
+    fn gone_within(pid: rustix::process::Pid, limit: Duration) -> bool {
+        let deadline = Instant::now() + limit;
+        while Instant::now() < deadline {
+            if !alive(pid) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        !alive(pid)
+    }
+
+    /// The timeout kills the whole group: the `sleep` the child started is
+    /// gone as well, not left running with nobody waiting for it (D54).
+    #[test]
+    fn a_timeout_kills_the_grandchildren_too() {
+        let dir = pgroup_fixture("exec_pgroup_killed");
+        let pidfile = dir.join("grandchild.pid");
+        crate::ops::mutate::write_atomic(&pidfile, b"").unwrap();
+
+        let err = supervise(
+            with_a_grandchild(&pidfile),
+            Path::new(SH),
+            "`sh -c …`",
+            None,
+            Duration::from_millis(500),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, Error::Io { source, .. } if source.kind() == std::io::ErrorKind::TimedOut),
+            "{err}"
+        );
+
+        let pid = grandchild(&pidfile);
+        assert!(
+            gone_within(pid, Duration::from_secs(5)),
+            "the grandchild {} outlived the timeout",
+            pid.as_raw_nonzero()
+        );
+    }
+
+    /// The control: the same child, killed the way `run` used to kill it
+    /// (the direct child only), leaves its grandchild running. Without this
+    /// the test above could pass because `sleep` died for some other reason.
+    #[test]
+    fn killing_only_the_child_would_leave_the_grandchild_running() {
+        let dir = pgroup_fixture("exec_pgroup_control");
+        let pidfile = dir.join("grandchild.pid");
+        crate::ops::mutate::write_atomic(&pidfile, b"").unwrap();
+
+        let mut cmd = with_a_grandchild(&pidfile);
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = cmd.spawn().unwrap();
+        let pid = grandchild(&pidfile);
+        child.kill().unwrap();
+        child.wait().unwrap();
+
+        let survived = !gone_within(pid, Duration::from_millis(300));
+        // Tidy up the control's own orphan before asserting anything.
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+        assert!(
+            survived,
+            "killing sh alone took its grandchild with it, so the test above proves nothing"
+        );
     }
 }

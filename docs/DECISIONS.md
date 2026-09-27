@@ -1042,7 +1042,8 @@ configuration, and there is no general way to switch filters off from the
 command line. Recorded here rather than claimed away.
 
 **Timeouts and an output cap.** std has no wait-with-timeout, so `run`
-polls `try_wait` every 5 ms and kills the child at its deadline: `sh -n`
+polls `try_wait` every 5 ms and kills the child — since D54, its whole
+process group — at its deadline: `sh -n`
 and `pacman -Q` 10 s, `hyprctl` 5 s, `git status` 60 s (a cold cache on a
 large tree), `Hyprland --verify-config` 30 s (it parses twice), `uwsm stop`
 60 s. Every pipe is serviced by its own thread so a child that fills stderr
@@ -1118,3 +1119,50 @@ line. Rolling back to generation `0000`, which belongs to no profile, checks
 nothing. `rescue.sh` checks nothing either, deliberately: it is for a TTY
 where the session has already failed to start, and it must not depend on
 pacman any more than on ricepilot.
+
+## D54 — A child that overruns is killed with its whole process group
+
+*M5.* D52's timeout killed the direct child and nothing else. A child that
+had started something of its own — `sh -c 'helper &'`, a wedged `git` hook, a
+daemon an `exec =` line forked — left that grandchild running after
+ricepilot had reported the call as killed, still holding ricepilot's pipes
+open and still doing whatever it was doing.
+
+Every child is now started with `CommandExt::process_group(0)`, so it leads
+a process group of its own (std does the `setpgid` between fork and exec; no
+unsafe), and on timeout the group is killed with
+`rustix::process::kill_process_group(pid, SIGKILL)` before the leader is
+killed and reaped. The order matters: while the leader is unreaped its pid
+cannot be reused, so the group id cannot name anyone else's processes.
+`ESRCH` — the whole group already gone — is not a failure.
+
+`src/ops/exec.rs` tests it against the real supervisor: an `sh -c` that puts
+`sleep 30` behind `&`, writes its pid to a file under `target/fixtures/` and
+waits, run with a 500 ms limit; the test then asserts the `sleep` is gone. A
+control test kills the same child the old way and asserts the `sleep`
+survives it, so the first test cannot pass for an unrelated reason; it was
+also checked by hand that reverting the group kill makes the first test fail.
+(The supervisor was split out of `run_within` as `supervise` so a test can
+hand it a child that does more than `sh -n` ever will, without adding a test
+entry to the allowlist.)
+
+Three things this does not do, recorded rather than implied:
+
+* **A child that exits normally** is not followed by a group kill. Doing that
+  safely needs the leader kept as a zombie (`waitid(…, WNOWAIT)`) until the
+  group is killed, and none of the allowlisted queries leaves anything
+  behind. A grandchild that outlives a normal exit still has its pipes
+  abandoned after 500 ms, as D52 says.
+* **A grandchild that leaves the group** — `setsid()`, or `setpgid` of its
+  own — is out of reach. Hyprland's `exec` double-forks to detach the
+  command from the compositor, and whether a given version also leaves the
+  group is Hyprland's business, not something ricepilot can rely on. So the
+  process group is *not* what keeps `Hyprland --verify-config` from running
+  a user's `exec =` lines; stripping them from the scratch copy is (D55).
+* **Ctrl-C** at the terminal now reaches ricepilot and not its child, since
+  the child is no longer in the terminal's foreground group. A ricepilot
+  ended that way leaves its child to finish on its own (the deadline was
+  ricepilot's to enforce, and ricepilot is gone); none reads the terminal
+  (stdin is `/dev/null` or a pipe), so none is stopped by `SIGTTIN` either.
+  For `uwsm stop` that is the better way round: a session teardown should not
+  be interrupted half way by a keypress aimed at ricepilot.
