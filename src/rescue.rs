@@ -1,8 +1,9 @@
 //! `state/rescue.sh`: rung 3 of the recovery ladder (`docs/DESIGN.md` §7).
 //!
 //! A fully unrolled POSIX `sh` script that restores the previous generation
-//! using nothing but `ln -sT`, `mv -T` and `mkdir -p`, at absolute paths. No
-//! loops, no variables, no `PATH` lookup, no ricepilot binary. It is checked
+//! using nothing but `test`, `ln -sT`, `mv -T` and `mkdir -p`, at absolute
+//! paths. No loops, no `PATH` lookup, no ricepilot binary, and one variable:
+//! the exit status, set when a step is skipped or fails (D73). It is checked
 //! with `sh -n` before it is written and written atomically as a real file, so
 //! a switch that goes wrong cannot take it with them.
 //!
@@ -13,6 +14,9 @@
 //! Everything it can do is a rename or a symlink creation. It cannot remove
 //! anything (R2), so a destination the previous generation did not have is
 //! displaced into a rescue attic, exactly as `rollback` displaces one (D36).
+//! And it only ever renames over a link: before each move it checks that
+//! what is there is a link (or nothing), and skips the destination if not,
+//! so a file or directory put there since the switch is left alone (D73).
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -28,6 +32,10 @@ pub struct Binaries {
     pub ln: PathBuf,
     pub mv: PathBuf,
     pub mkdir: PathBuf,
+    /// `test`, for the check before each move (D73). A binary rather than
+    /// the shell's builtin so that, like the other three, what runs does
+    /// not depend on the shell or its `PATH`.
+    pub test: PathBuf,
 }
 
 /// Directories searched for the three commands, in order.
@@ -56,6 +64,7 @@ impl Binaries {
             ln: find(look, "ln")?,
             mv: find(look, "mv")?,
             mkdir: find(look, "mkdir")?,
+            test: find(look, "test")?,
         })
     }
 }
@@ -151,7 +160,15 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
     );
     let _ = writeln!(
         s,
-        "# cannot restore does not cost you the ones it can. Read the output."
+        "# cannot restore does not cost you the ones it can. It only replaces a link:"
+    );
+    let _ = writeln!(
+        s,
+        "# where something else is there now, a file or a directory, it leaves it and"
+    );
+    let _ = writeln!(
+        s,
+        "# says SKIPPED. It exits 0 only if every step is ok. Read the output."
     );
     let _ = writeln!(s);
 
@@ -160,14 +177,27 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
         return s;
     }
 
+    // The one variable: whether any destination was skipped or failed, so
+    // the script's exit status says what its output does (D73).
+    let _ = writeln!(s, "rescue_status=0");
+    let _ = writeln!(s);
+
+    let test = bins.test.display();
     for e in &to.entries {
         let dest = quote(&e.dest);
+        let said = echo_safe(&e.dest);
         match &e.target {
             Some(target) => {
+                // Only a link is replaced (D73). `mv -T` renames over
+                // whatever is at `dest`, and a regular file there is one the
+                // user or an installer put there since the switch: the
+                // rename would destroy it. A real directory would make the
+                // rename fail, but only after the staging link was made.
                 let _ = writeln!(s, "# {} -> {}", shown(&e.dest), shown(target));
+                let _ = writeln!(s, "if {test} -L {dest} || {test} ! -e {dest}; then");
                 let _ = writeln!(
                     s,
-                    "if {} -sT {} {} && {} -T {} {}; then",
+                    "  if {} -sT {} {} && {} -T {} {}; then",
                     bins.ln.display(),
                     quote(target),
                     quote(&staging(&e.dest)),
@@ -175,34 +205,82 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
                     quote(&staging(&e.dest)),
                     dest
                 );
+                ok_or_failed(&mut s, &said);
+                let _ = writeln!(s, "else");
+                let _ = writeln!(
+                    s,
+                    "  echo 'SKIPPED {said}: it is not a link now, so it was left as it is'"
+                );
+                let _ = writeln!(s, "  rescue_status=1");
+                let _ = writeln!(s, "fi");
             }
             None => {
                 // The previous generation had nothing here. Removing is not
                 // available (R2), so the link is displaced into the rescue
-                // attic — the same answer `rollback` gives (D36).
+                // attic — the same answer `rollback` gives (D36). Only a
+                // link, and never over something already parked (D73).
                 let parked = attic.join(parked_rel(&e.dest));
                 let parent = parked.parent().unwrap_or(attic).to_path_buf();
+                let kept = quote(&parked);
                 let _ = writeln!(s, "# {} had nothing here; displace it", shown(&e.dest));
                 let _ = writeln!(
                     s,
-                    "if {} -p {} && {} -T {} {}; then",
+                    "if {test} -L {dest} && {test} ! -L {kept} && {test} ! -e {kept}; then"
+                );
+                let _ = writeln!(
+                    s,
+                    "  if {} -p {} && {} -T {} {}; then",
                     bins.mkdir.display(),
                     quote(&parent),
                     bins.mv.display(),
                     dest,
-                    quote(&parked)
+                    kept
                 );
+                ok_or_failed(&mut s, &said);
+                let _ = writeln!(s, "elif {test} ! -L {dest} && {test} ! -e {dest}; then");
+                let _ = writeln!(s, "  echo 'ok      {said} (nothing is there already)'");
+                let _ = writeln!(s, "elif {test} -L {dest}; then");
+                let _ = writeln!(
+                    s,
+                    "  echo 'SKIPPED {said}: {} is taken, so nothing was moved'",
+                    echo_safe(&parked)
+                );
+                let _ = writeln!(s, "  rescue_status=1");
+                let _ = writeln!(s, "else");
+                let _ = writeln!(
+                    s,
+                    "  echo 'SKIPPED {said}: it is not a link now, so it was left as it is'"
+                );
+                let _ = writeln!(s, "  rescue_status=1");
+                let _ = writeln!(s, "fi");
             }
         }
-        let _ = writeln!(s, "  echo 'ok      {}'", echo_safe(&e.dest));
-        let _ = writeln!(s, "else");
-        let _ = writeln!(s, "  echo 'FAILED  {}'", echo_safe(&e.dest));
-        let _ = writeln!(s, "fi");
         let _ = writeln!(s);
     }
 
-    let _ = writeln!(s, "echo 'ricepilot: rescue finished. log out and back in.'");
+    let _ = writeln!(s, "if {test} \"$rescue_status\" = 0; then");
+    let _ = writeln!(
+        s,
+        "  echo 'ricepilot: rescue finished. log out and back in.'"
+    );
+    let _ = writeln!(s, "else");
+    let _ = writeln!(
+        s,
+        "  echo 'ricepilot: rescue finished, but not every destination is restored: read the \
+         SKIPPED and FAILED lines above.'"
+    );
+    let _ = writeln!(s, "fi");
+    let _ = writeln!(s, "exit \"$rescue_status\"");
     s
+}
+
+/// The inner `then` branch's report, shared by both kinds of step.
+fn ok_or_failed(s: &mut String, said: &str) {
+    let _ = writeln!(s, "    echo 'ok      {said}'");
+    let _ = writeln!(s, "  else");
+    let _ = writeln!(s, "    echo 'FAILED  {said}'");
+    let _ = writeln!(s, "    rescue_status=1");
+    let _ = writeln!(s, "  fi");
 }
 
 /// A path as it appears inside a single-quoted `echo`: shown as in a

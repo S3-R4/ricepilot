@@ -183,11 +183,13 @@ sh ~/.local/state/ricepilot/rescue.sh
 
 It is a plain POSIX shell script ricepilot writes after every completed
 switch and rollback. It restores the generation **before** the current one
-— the one `rollback` would go to — using only `ln`, `mv` and `mkdir`, each
-named by its absolute path: no ricepilot, no D-Bus, no `hyprctl`, no fish,
-no `PATH`. It removes nothing: where the older generation recorded that
-nothing was there, what is there now is moved into
-`~/.local/state/ricepilot/attic/rescue-NNNN/`. The top of the file says which
+— the one `rollback` would go to — using only `test`, `ln`, `mv` and
+`mkdir`, each named by its absolute path: no ricepilot, no D-Bus, no
+`hyprctl`, no fish, no `PATH`. It removes nothing: where the older
+generation recorded that nothing was there, the link there now is moved into
+`~/.local/state/ricepilot/attic/rescue-NNNN/`. And it only ever replaces a
+**link**: before each step it checks that what is at the path is a link, or
+nothing, and otherwise leaves it alone. The top of the file says which
 generation it restores and what profile that was, and a comment line per
 destination says what it will do there:
 
@@ -196,24 +198,34 @@ head -n 3 ~/.local/state/ricepilot/rescue.sh
 grep '^# /' ~/.local/state/ricepilot/rescue.sh
 ```
 
-It prints one line per destination, `ok` or `FAILED`, and carries on past a
-failure, so one path it cannot fix does not cost you the others. It exits 0
-either way: **read the output.**
+It prints one line per destination — `ok`, `SKIPPED` or `FAILED` — and
+carries on past a problem, so one path it cannot fix does not cost you the
+others. It exits 0 only if every line is `ok`; either way, **read the
+output.** Running it a second time is safe: a path already restored is
+linked again to the same place, and one already empty says so.
 
-- **`FAILED` for a path that is now a real directory** (`mv: cannot
-  overwrite directory …`): something — usually a rice installer — replaced
-  ricepilot's link with a directory, and the script will not put a link over
-  it. It leaves the link it made beside it, as `<path>.rp-rescue`. To finish
-  by hand, move the directory aside and the link into place:
+- **`SKIPPED … it is not a link now`**: something — usually a rice
+  installer, or you — put a real file or directory where ricepilot's link
+  was, and the script will not put a link over it. It changes nothing there.
+  To finish by hand, move what is there aside, then run the script again:
 
   ```sh
   mv -nT ~/.config/foot ~/.config/foot.set-aside
-  mv -nT ~/.config/foot.rp-rescue ~/.config/foot
+  ls -ld ~/.config/foot          # must say "No such file or directory"
+  sh ~/.local/state/ricepilot/rescue.sh
   ```
 
-  (`foot` is an example; use the path from the `FAILED` line.) Until then,
-  running the script again reports the same `FAILED`, because
-  `<path>.rp-rescue` is already there.
+  (`foot` is an example; use the path from the `SKIPPED` line.)
+
+- **`SKIPPED … is taken`**: a path the older generation had nothing at is a
+  link again, and the place in `attic/rescue-NNNN/` the script would move it
+  to already holds what an earlier run moved there. It moves nothing rather
+  than replace that. Move the link aside with `mv -nT` as above.
+
+- **`FAILED`**: the check passed but `ln` or `mv` did not — their own error
+  message is printed just above. If it was the `mv`, the link the script
+  made is left beside the path as `<path>.rp-rescue`, and later runs fail at
+  the same step until it is gone; move it aside with `mv -nT` too.
 
 - **After a rollback it points the other way.** The script restores the
   generation before the current one, and a rollback is a generation: after a
@@ -364,7 +376,9 @@ state and the `mv -nT` it prints. Run by hand in the same kind of sandbox
 while this document was written: step 5's whole sequence — `rescue.sh`,
 setting the restored links aside, `rollback --commit`, a clean `doctor` —
 with and without a link only the newer profile had, and `rescue.sh`'s
-`FAILED` on a real directory and on a second run.
+`FAILED` on a real directory and on a second run (before D73 made those
+`SKIPPED` and `ok`; the script as it is now has been run by the test suite
+only).
 
 Not tried, because it would log a real user out or needs a real login: that
 `uwsm stop` ends the session, from the session or from a TTY;

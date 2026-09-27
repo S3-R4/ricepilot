@@ -60,14 +60,22 @@ fn switched(case: &str) -> World {
 }
 
 fn run_script(path: &Path) -> String {
+    let (code, out) = run_script_status(path);
+    assert_eq!(code, Some(0), "the rescue script exited {code:?}:\n{out}");
+    out
+}
+
+/// The script's exit status and its stdout, stderr appended.
+fn run_script_status(path: &Path) -> (Option<i32>, String) {
     let out = common::sh(path).output().unwrap();
-    assert!(
-        out.status.success(),
-        "the rescue script exited {:?}:\n{}",
+    (
         out.status.code(),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).into_owned()
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ),
+    )
 }
 
 /// The gate. A real `/bin/sh`, a real tree, and the previous generation's
@@ -101,8 +109,9 @@ fn a_real_sh_running_the_script_restores_the_previous_generation() {
 }
 
 /// Running it twice must not make things worse. The second pass finds `hypr`
-/// already restored and re-links it to the same place; `btop` is already gone
-/// and its line fails loudly rather than silently doing something else.
+/// already restored and re-links it to the same place; `btop` is already
+/// empty, which is what the generation recorded, so that step is ok too and
+/// the run exits 0 (D73).
 #[test]
 fn running_the_script_a_second_time_leaves_the_same_topology() {
     let w = switched("rescue_twice");
@@ -114,27 +123,56 @@ fn running_the_script_a_second_time_leaves_the_same_topology() {
     assert_eq!(read::readlink(&w.hypr).unwrap(), w.old.join("hypr"));
     assert_eq!(read::lstat(&w.btop).unwrap(), None);
     assert!(
-        output.contains("FAILED"),
-        "a step that cannot be repeated says so rather than pretending: {output}"
+        output.contains("(nothing is there already)"),
+        "the step with nothing left to do says so: {output}"
     );
+    assert!(
+        !output.contains("FAILED") && !output.contains("SKIPPED"),
+        "{output}"
+    );
+}
+
+/// A link that reappears at a displaced destination after the first run is
+/// not moved over the one the first run parked (D73): that would replace
+/// it. The step is skipped, and says which name is taken.
+#[test]
+fn a_second_displacement_never_replaces_what_the_first_parked() {
+    let w = switched("rescue_parked_twice");
+    let script = rescue::regenerate(&w.f.state(), &w.gen0).unwrap();
+    run_script(&script);
+    let parked = rescue::rescue_attic(&w.f.state(), 0).join(w.btop.strip_prefix("/").unwrap());
+    assert_eq!(read::readlink(&parked).unwrap(), w.new.join("btop"));
+
+    let again = w.f.dir("rice/again");
+    w.f.link(".config/btop", &again);
+    let (code, output) = run_script_status(&script);
+
+    assert_ne!(code, Some(0), "{output}");
+    assert!(
+        output.contains("SKIPPED") && output.contains("is taken"),
+        "{output}"
+    );
+    assert_eq!(read::readlink(&parked).unwrap(), w.new.join("btop"));
+    assert_eq!(read::readlink(&w.btop).unwrap(), again);
 }
 
 /// One destination it cannot restore must not cost the others. A real
 /// directory in the way is the case that actually happens — an installer put
-/// it there.
+/// it there. The script sees it is not a link and leaves it, without making
+/// a staging link beside it (D73).
 #[test]
 fn a_destination_it_cannot_restore_does_not_stop_the_rest() {
     let w = switched("rescue_partial");
     let script = rescue::regenerate(&w.f.state(), &w.gen0).unwrap();
 
-    // `mv -T` will not replace a non-empty directory.
     w.f.clear(".config/hypr");
     w.f.dir(".config/hypr");
     w.f.file(".config/hypr/installer-wrote-this", "x\n");
 
-    let output = run_script(&script);
+    let (code, output) = run_script_status(&script);
 
-    assert!(output.contains("FAILED"), "{output}");
+    assert_ne!(code, Some(0), "a skipped step is not a success: {output}");
+    assert!(output.contains("SKIPPED"), "{output}");
     assert_eq!(
         read::lstat(&w.btop).unwrap(),
         None,
@@ -146,12 +184,64 @@ fn a_destination_it_cannot_restore_does_not_stop_the_rest() {
             .is_some(),
         "and what the installer wrote is untouched"
     );
+    assert!(
+        read::lstat_or_absent(&w.f.path(".config/hypr.rp-rescue"))
+            .unwrap()
+            .is_none(),
+        "and no staging link was left beside it"
+    );
+}
+
+/// The case `mv -T` alone got wrong: a regular file at a destination since
+/// the switch. A rename over it would have destroyed it. The script checks
+/// first (D73): the file is byte-for-byte what it was, the other
+/// destinations are restored, and the exit status says not everything was.
+#[test]
+fn a_regular_file_at_a_destination_is_left_byte_identical() {
+    let f = Fixture::new_in("m3", "rescue_regular_file");
+    let old = f.dir("rice/old");
+    let new = f.dir("rice/new");
+    for leaf in ["hypr", "foot", "kitty"] {
+        f.dir(&format!("rice/old/{leaf}"));
+        f.dir(&format!("rice/new/{leaf}"));
+    }
+    f.dir(".config");
+    let hypr = f.link(".config/hypr", &old.join("hypr"));
+    let foot = f.link(".config/foot", &old.join("foot"));
+    let kitty = f.link(".config/kitty", &old.join("kitty"));
+    let gen0 =
+        Generation::observe(0, "old", WHEN, &[hypr.clone(), foot.clone(), kitty.clone()]).unwrap();
+
+    // The switch, then something writes a real file where `foot`'s link was.
+    f.link(".config/hypr", &new.join("hypr"));
+    f.link(".config/kitty", &new.join("kitty"));
+    f.clear(".config/foot");
+    let body = "user wrote this after the switch\n\u{0}\u{ff}binary too\n";
+    f.file(".config/foot", body);
+    let before = f.ident(".config/foot");
+
+    let script = rescue::regenerate(&f.state(), &gen0).unwrap();
+    let (code, output) = run_script_status(&script);
+
+    assert_ne!(code, Some(0), "{output}");
+    assert!(
+        output.contains(&format!("SKIPPED {}: it is not a link now", foot.display())),
+        "{output}"
+    );
+    assert_eq!(read::slurp(&foot).unwrap(), body, "the file is untouched");
+    assert_eq!(f.ident(".config/foot"), before, "and it is the same file");
+    assert_eq!(read::lstat(&foot).unwrap().unwrap().kind, read::Kind::File);
+    assert_eq!(read::readlink(&hypr).unwrap(), old.join("hypr"));
+    assert_eq!(read::readlink(&kitty).unwrap(), old.join("kitty"));
+    assert!(read::lstat_or_absent(&f.path(".config/foot.rp-rescue"))
+        .unwrap()
+        .is_none());
 }
 
 /// The script's whole premise is that it needs nothing. Asserting the absence
 /// of the things it must not contain is the one text assertion worth making.
 #[test]
-fn the_script_uses_only_four_constructs_and_three_commands() {
+fn the_script_uses_only_its_constructs_and_four_commands() {
     let w = switched("rescue_shape");
     let script = rescue::regenerate(&w.f.state(), &w.gen0).unwrap();
     let text = read::slurp(&script).unwrap();
@@ -165,46 +255,81 @@ fn the_script_uses_only_four_constructs_and_three_commands() {
         .collect::<Vec<_>>()
         .join("\n");
 
+    // The one expansion is the one variable, the exit status (D73).
+    let unexpanded = code.replace("\"$rescue_status\"", "");
     for forbidden in ["for ", "while ", "until ", "$", "`", "rm "] {
         assert!(
-            !code.contains(forbidden),
+            !unexpanded.contains(forbidden),
             "the rescue script must not execute {forbidden:?}:\n{code}"
         );
     }
 
-    // Stronger than a blocklist: every construct it uses is one of four, and
-    // every command it runs is one of three absolute paths. Grepping the text
-    // for "ricepilot" would prove nothing — a fixture path contains the word.
+    // Stronger than a blocklist: every construct it uses is one of a few,
+    // and every command it runs is one of four absolute paths. Grepping the
+    // text for "ricepilot" would prove nothing — a fixture path contains the
+    // word.
+    let bins = [
+        "/usr/bin/test",
+        "/usr/bin/ln",
+        "/usr/bin/mv",
+        "/usr/bin/mkdir",
+    ];
+    let words = [
+        "if",
+        "elif",
+        "else",
+        "fi",
+        "echo",
+        "exit",
+        "rescue_status=0",
+        "rescue_status=1",
+    ];
     for line in code.lines() {
         let first = line.split_whitespace().next().unwrap();
         assert!(
-            matches!(first, "if" | "else" | "fi" | "echo"),
-            "the script uses a construct other than its four: {line}"
+            words.contains(&first),
+            "the script uses a construct other than its own: {line}"
         );
-        for command in line.split("&&") {
+        if first == "echo" || first.starts_with("rescue_status=") || first == "exit" {
+            continue;
+        }
+        for command in line.split("&&").flat_map(|c| c.split("||")) {
             let head = command
                 .trim()
                 .trim_start_matches("if ")
+                .trim_start_matches("elif ")
                 .split_whitespace()
                 .next()
                 .unwrap();
             assert!(
-                matches!(
-                    head,
-                    "/usr/bin/ln" | "/usr/bin/mv" | "/usr/bin/mkdir" | "else" | "fi" | "echo"
-                ),
-                "the script runs {head:?}, which is not one of its three commands: {line}"
+                bins.contains(&head) || matches!(head, "else" | "fi"),
+                "the script runs {head:?}, which is not one of its four commands: {line}"
             );
         }
     }
     // Every command it names is an absolute path that exists.
-    for line in text.lines().filter(|l| l.starts_with("if ")) {
+    for line in text
+        .lines()
+        .map(str::trim_start)
+        .filter(|l| l.starts_with("if ") || l.starts_with("elif "))
+    {
         let bin = line.split_whitespace().nth(1).unwrap();
         assert!(bin.starts_with('/'), "not an absolute path: {line}");
         assert!(
             read::lstat(Path::new(bin)).unwrap().is_some(),
             "names a binary that is not there: {bin}"
         );
+    }
+    // Every move is behind a check that what it renames over is a link or
+    // nothing (D73): the line before each `mv -T` step's `if` is a `test`.
+    let lines: Vec<&str> = text.lines().collect();
+    for (i, l) in lines.iter().enumerate() {
+        if l.contains("/usr/bin/mv -T") {
+            assert!(
+                lines[i - 1].starts_with("if /usr/bin/test "),
+                "a move without a check before it: {l}"
+            );
+        }
     }
 }
 

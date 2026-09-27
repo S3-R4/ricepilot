@@ -239,14 +239,19 @@ Each rung works when the one above it does not:
 1. `ricepilot rollback --commit` — normal case.
 2. `ricepilot recover --commit` — after a crash mid-switch.
 3. `sh ~/.local/state/ricepilot/rescue.sh` — fully unrolled POSIX sh with
-   absolute binary paths, no loops, no variables, no ricepilot binary. `sh -n`
-   checked before it is written, written atomically as a **real file** so a
+   absolute binary paths, no loops, one variable (its exit status), no
+   ricepilot binary. `sh -n` checked before it is written, written
+   atomically as a **real file** so a
    bad switch cannot take it with them. Runs from a TTY with no D-Bus, no
    hyprctl, no fish, no quickshell.
 
    It deliberately does **not** `set -e`: each destination is an independent
    `if … else echo FAILED … fi`, so one path it cannot restore does not cost
-   the user the ones it can (D37). It has no delete either, so a destination
+   the user the ones it can (D37); it exits non-zero if any step was not ok.
+   It only ever renames over a link: each step first checks (`test -L`) that
+   the path holds a link or nothing, and says `SKIPPED` and leaves it
+   otherwise, so a file or directory put there since the switch survives
+   (D73). It has no delete either, so a destination
    the restored generation recorded as empty is displaced into
    `state/attic/rescue-NNNN/`. A destination that generation has no record
    of at all — one only a later profile linked — is not in the script and is

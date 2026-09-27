@@ -2431,15 +2431,13 @@ it still replaces whatever happens to have that name, and is harder to type
 from a TTY than `-2`. `mv -n --update=none-fail` would fail loudly, but is
 only in coreutils 9.5 and later.
 
-Not covered: `rescue.sh` keeps its own `mv -T`. There it is the atomic
-replacement of the staging link over the link at the destination — a link
-over a link is the point — and a directory there makes it fail, which
-RECOVERY.md documents. But a *regular file* at the destination (an
-installer that wrote one where ricepilot's link was) is replaced by it, and
-if something reappears at a displaced destination between two runs of the
-same script, the second run's move into `rescue-NNNN` replaces what the
-first parked there. Both are from reading the script, not run. Changing the script changes every script's bytes, and so what
-`doctor` and `--relogin` call stale; it is left for its own change.
+Not covered here: `rescue.sh` keeps its own `mv -T`. There it is the
+atomic replacement of the staging link over the link at the destination — a
+link over a link is the point. But a *regular file* at the destination (an
+installer that wrote one where ricepilot's link was) was replaced by it,
+and if something reappeared at a displaced destination between two runs of
+the same script, the second run's move into `rescue-NNNN` replaced what the
+first parked there. D73 closes both.
 
 ## D71 — A destination above a denylisted entry is refused too, and `~` is named as such
 
@@ -2508,3 +2506,62 @@ printed lossily, so a command naming one names a different path; and a
 Unicode format character (a bidirectional override) is not a control
 character and is printed as it is.
 
+## D73 — `rescue.sh` only renames over a link, and says so in its exit status
+
+*M5, closes the gap D70 left.* Each step of `rescue.sh` was `ln -sT target
+dest.rp-rescue && mv -T dest.rp-rescue dest`. `mv -T` is a `rename(2)`: it
+replaces a symlink, which is the point, but it replaces a *regular file*
+just as silently. A file at a managed destination after a switch is one
+the user or an installer put there, and the script — the rung a user
+reaches for at a TTY when nothing else works — destroyed it. A real
+directory made the rename fail, but only after the staging link was made
+beside it. The displacing step's move into `attic/rescue-NNNN/` had the same
+flaw from the other side: a second run replaced what the first had parked.
+
+**Check, then move; skip what fails the check.** Every step is now guarded:
+
+* restore: `if test -L dest || test ! -e dest` — a link (dangling
+  included) or nothing — then the old `ln -sT && mv -T`;
+* displace: `if test -L dest && test ! -L parked && test ! -e parked` —
+  only a link is moved into the attic, and never onto a name already there;
+  a destination already empty is `ok … (nothing is there already)`, which
+  makes a second run of a successful script all `ok`.
+
+Anything else is `SKIPPED <path>: it is not a link now, so it was left as
+it is` (or `… <parked> is taken, so nothing was moved`), and the script goes
+on with the next destination (D37).
+
+**`test` by absolute path.** The brief's shape was `[ -L … ]`, a shell
+builtin. `/usr/bin/test` is located like `ln`, `mv` and `mkdir`
+(`Binaries::test`; a machine without it gets no script, as for the others),
+so the header's "every command below is an absolute path" stays true and
+nothing depends on how a given `/bin/sh` resolves a builtin with no `PATH`.
+`echo` stays the builtin it always was.
+
+**Exit status.** The script exits 0 only if every step printed `ok`; a
+`SKIPPED` or `FAILED` step sets `rescue_status=1`, and the last line is
+`exit "$rescue_status"`. That is the script's one variable, and its one
+expansion — the "no variables" of DESIGN §7 and `rescue.rs` is now "one
+variable", and the test that forbids `$` in the code allows exactly that
+word. Without it, a skipped step could only be noticed by reading the
+output, and a caller of the script (a user's `&&`) would take a partial
+restore for a whole one. A `FAILED` step, which exited 0 before, now exits
+non-zero too: the same reasoning, and the old behaviour had no reason
+beyond there being no variable to carry it.
+
+**What is left.** The check and the move are two steps, so something
+written at the path between them is still replaced: the window is two
+`exec`s wide, at a TTY, against a destination nothing is expected to be
+writing to. `mv -nT` cannot close it for the restore, because replacing the
+old link is what the move is for, and POSIX `sh` has no `RENAME_NOREPLACE`
+for "replace only a link". Tested by running the script under a real
+`/bin/sh` (`tests/rescue.rs`): a regular file, a NUL byte in it,
+is byte-identical and the same inode afterwards while the other links are
+restored and the exit is non-zero; a real directory is skipped with no
+staging link left; a second run exits 0; a displaced name already taken is
+skipped.
+
+Every script's bytes change, so a `rescue.sh` written before this is not
+what ricepilot would now write: `doctor` reports it (its message now also
+names "an older ricepilot wrote it") and `--relogin` refuses it until the
+next `switch --commit` or `rollback --commit` writes it again.

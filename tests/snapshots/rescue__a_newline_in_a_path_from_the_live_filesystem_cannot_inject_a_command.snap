@@ -14,21 +14,53 @@ expression: "common::redact(&text, &f)"
 #     <HOME>/.local/state/ricepilot/attic/rescue-0000
 #
 # It reports each step and carries on past a failure, so one destination it
-# cannot restore does not cost you the ones it can. Read the output.
+# cannot restore does not cost you the ones it can. It only replaces a link:
+# where something else is there now, a file or a directory, it leaves it and
+# says SKIPPED. It exits 0 only if every step is ok. Read the output.
+
+rescue_status=0
 
 # <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER # had nothing here; displace it
-if /usr/bin/mkdir -p '<HOME>/.local/state/ricepilot/attic/rescue-0000<HOME>/.config' && /usr/bin/mv -T '<HOME>/.config/gone
+if /usr/bin/test -L '<HOME>/.config/gone
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #' && /usr/bin/test ! -L '<HOME>/.local/state/ricepilot/attic/rescue-0000<HOME>/.config/gone
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #' && /usr/bin/test ! -e '<HOME>/.local/state/ricepilot/attic/rescue-0000<HOME>/.config/gone
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #'; then
+  if /usr/bin/mkdir -p '<HOME>/.local/state/ricepilot/attic/rescue-0000<HOME>/.config' && /usr/bin/mv -T '<HOME>/.config/gone
 echo INJECTED-FROM-RESCUE
 : > INJECTED-MARKER #' '<HOME>/.local/state/ricepilot/attic/rescue-0000<HOME>/.config/gone
 echo INJECTED-FROM-RESCUE
 : > INJECTED-MARKER #'; then
-  echo 'ok      <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+    echo 'ok      <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+  else
+    echo 'FAILED  <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+    rescue_status=1
+  fi
+elif /usr/bin/test ! -L '<HOME>/.config/gone
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #' && /usr/bin/test ! -e '<HOME>/.config/gone
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #'; then
+  echo 'ok      <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER # (nothing is there already)'
+elif /usr/bin/test -L '<HOME>/.config/gone
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #'; then
+  echo 'SKIPPED <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #: <HOME>/.local/state/ricepilot/attic/rescue-0000<HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER # is taken, so nothing was moved'
+  rescue_status=1
 else
-  echo 'FAILED  <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+  echo 'SKIPPED <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #: it is not a link now, so it was left as it is'
+  rescue_status=1
 fi
 
 # <HOME>/.config/x\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER # -> <HOME>/rice/old\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #/hypr
-if /usr/bin/ln -sT '<HOME>/rice/old
+if /usr/bin/test -L '<HOME>/.config/x
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #' || /usr/bin/test ! -e '<HOME>/.config/x
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #'; then
+  if /usr/bin/ln -sT '<HOME>/rice/old
 echo INJECTED-FROM-RESCUE
 : > INJECTED-MARKER #/hypr' '<HOME>/.config/x
 echo INJECTED-FROM-RESCUE
@@ -37,9 +69,19 @@ echo INJECTED-FROM-RESCUE
 : > INJECTED-MARKER #.rp-rescue' '<HOME>/.config/x
 echo INJECTED-FROM-RESCUE
 : > INJECTED-MARKER #'; then
-  echo 'ok      <HOME>/.config/x\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+    echo 'ok      <HOME>/.config/x\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+  else
+    echo 'FAILED  <HOME>/.config/x\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+    rescue_status=1
+  fi
 else
-  echo 'FAILED  <HOME>/.config/x\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+  echo 'SKIPPED <HOME>/.config/x\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #: it is not a link now, so it was left as it is'
+  rescue_status=1
 fi
 
-echo 'ricepilot: rescue finished. log out and back in.'
+if /usr/bin/test "$rescue_status" = 0; then
+  echo 'ricepilot: rescue finished. log out and back in.'
+else
+  echo 'ricepilot: rescue finished, but not every destination is restored: read the SKIPPED and FAILED lines above.'
+fi
+exit "$rescue_status"

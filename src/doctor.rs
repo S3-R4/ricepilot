@@ -1241,7 +1241,7 @@ fn rescue(
             Some(n) if n == format!("{before:04}") => format!(
                 "it says it restores generation {before:04}, the one before the current\n\
                  {:04}, but it is not the script ricepilot would write for it: it was\n\
-                 edited, or generation {before:04} was.",
+                 edited, generation {before:04} was, or an older ricepilot wrote it.",
                 current.id
             ),
             Some(n) => format!(

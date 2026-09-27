@@ -13,7 +13,7 @@ PROBLEM 1 of 1: <HOME>/.local/state/ricepilot/rescue.sh
 
   it says it restores generation 0000, the one before the current
   0001, but it is not the script ricepilot would write for it: it was
-  edited, or generation 0000 was.
+  edited, generation 0000 was, or an older ricepilot wrote it.
 
   it is rung 3 of the recovery ladder, the one for a TTY when nothing else
   works. do not rely on it as it is.
