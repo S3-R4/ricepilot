@@ -287,6 +287,16 @@ fn every_init_refusal() {
             "a profile name that is a path",
             vec!["init", "--root", "~/rice/caelestia", "--name", "../escape"],
         ),
+        (
+            "a profile name with a newline in it (D68)",
+            vec![
+                "init",
+                "--root",
+                "~/rice/caelestia",
+                "--name",
+                "p\necho INJECTED #",
+            ],
+        ),
     ] {
         let r = run(&m.f, &args, &[]);
         s.push_str(&format!("{what}\n  exit {}  {}\n", r.code, r.stderr.trim()));

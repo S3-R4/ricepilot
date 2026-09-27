@@ -79,7 +79,9 @@ fn find(look: &dyn Look, name: &str) -> Result<PathBuf> {
 }
 
 /// Single-quote a path for `sh`. Everything inside single quotes is literal
-/// except a single quote itself, which is closed, escaped and reopened.
+/// except a single quote itself, which is closed, escaped and reopened — a
+/// newline included, so a path carrying one is still one argument (and is
+/// passed to `ln`/`mv` as it is, since that is the path's real name).
 fn quote(p: &Path) -> String {
     let s = p.to_string_lossy();
     format!("'{}'", s.replace('\'', "'\\''"))
@@ -125,8 +127,8 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
         "# ricepilot rescue script — restores generation {:04}.",
         to.id
     );
-    let _ = writeln!(s, "# profile: {}", to.profile);
-    let _ = writeln!(s, "# written: {}", to.created);
+    let _ = writeln!(s, "# profile: {}", printable(&to.profile));
+    let _ = writeln!(s, "# written: {}", printable(&to.created));
     let _ = writeln!(s, "#");
     let _ = writeln!(
         s,
@@ -141,7 +143,7 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
         "# written out in full, and nothing here removes anything: a link this generation"
     );
     let _ = writeln!(s, "# did not have is moved into");
-    let _ = writeln!(s, "#     {}", attic.display());
+    let _ = writeln!(s, "#     {}", shown(attic));
     let _ = writeln!(s, "#");
     let _ = writeln!(
         s,
@@ -162,7 +164,7 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
         let dest = quote(&e.dest);
         match &e.target {
             Some(target) => {
-                let _ = writeln!(s, "# {} -> {}", e.dest.display(), target.display());
+                let _ = writeln!(s, "# {} -> {}", shown(&e.dest), shown(target));
                 let _ = writeln!(
                     s,
                     "if {} -sT {} {} && {} -T {} {}; then",
@@ -180,7 +182,7 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
                 // attic — the same answer `rollback` gives (D36).
                 let parked = attic.join(parked_rel(&e.dest));
                 let parent = parked.parent().unwrap_or(attic).to_path_buf();
-                let _ = writeln!(s, "# {} had nothing here; displace it", e.dest.display());
+                let _ = writeln!(s, "# {} had nothing here; displace it", shown(&e.dest));
                 let _ = writeln!(
                     s,
                     "if {} -p {} && {} -T {} {}; then",
@@ -203,10 +205,37 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
     s
 }
 
-/// A path as it appears inside a single-quoted `echo`. Same escaping as
-/// [`quote`], without the surrounding quotes, since the caller supplies them.
+/// A path as it appears inside a single-quoted `echo`: shown as in a
+/// comment ([`shown`]), then escaped as [`quote`] does, without the
+/// surrounding quotes, since the caller supplies them. The `echo` only
+/// reports; the command that acts on the path is given it unaltered.
 fn echo_safe(p: &Path) -> String {
-    p.to_string_lossy().replace('\'', "'\\''")
+    shown(p).replace('\'', "'\\''")
+}
+
+/// Text for a `#` comment or an `echo` with every control character written
+/// out (`\n`, `\t`, `\u{1b}`) rather than emitted. A newline in a comment
+/// ends the comment, and whatever follows it on the next line is a command:
+/// a path or profile name carrying `\necho …` would otherwise inject that
+/// command into the script (D68). Manifests refuse control characters, but
+/// the script also names paths from the live filesystem — link targets read
+/// back, the attic under `$HOME` — and a generation file on disk, so this
+/// does not rely on that.
+pub fn printable(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c.is_control() {
+            out.extend(c.escape_debug());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// [`printable`] for a path.
+fn shown(p: &Path) -> String {
+    printable(&p.to_string_lossy())
 }
 
 pub fn path(state: &Path) -> PathBuf {

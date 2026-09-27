@@ -236,3 +236,44 @@ fn every_not_possible_anchor_exists_in_the_document() {
         );
     }
 }
+
+/// A control character in any string or path a manifest names is refused
+/// when it is read (D68): a newline in a `dest` would otherwise reach a
+/// `#` comment in rescue.sh and turn the rest of that line into a command.
+/// Each refusal shows the value escaped, so the message carries none either.
+#[test]
+fn a_control_character_in_any_field_is_refused() {
+    let path = |dest: &str, src: &str| {
+        format!(
+            "name = \"p\"\n[[path]]\ndest = \"{dest}\"\nsrc = \"{src}\"\nkind = \"dir-link\"\n\
+             activation = \"relogin\"\n"
+        )
+    };
+    let mut out = String::new();
+    for text in [
+        path("~/.config/x\\necho INJECTED-FROM-RESCUE #", "foot"),
+        path("~/.config/foot", "foot\\recho INJECTED #"),
+        path("~/.config/foot\\t", "foot"),
+        path("~/.config/\\u001b[2Jfoot", "foot"),
+        path("~/.config/foot\\u0085", "foot"),
+        "name = \"p\\necho INJECTED #\"\n".to_string(),
+        "name = \"p\"\nroot = \"/rice\\necho INJECTED #\"\n".to_string(),
+        "name = \"p\"\nvolatile = [\"a\\nb\"]\n".to_string(),
+        "name = \"p\"\ngenerated = [\"hypr/\\ncurrent.conf\"]\n".to_string(),
+    ] {
+        let err = parse(&text).unwrap_err();
+        assert_eq!(err.exit_code(), ricepilot::error::ExitCode::Refused);
+        let msg = err.to_string();
+        assert!(
+            !msg.chars().any(char::is_control),
+            "the refusal carries a control character: {msg:?}"
+        );
+        assert!(msg.contains("(D68)"), "{msg}");
+        out.push_str(&msg);
+        out.push('\n');
+    }
+    insta::assert_snapshot!(out);
+
+    // A non-ASCII name is not a control character.
+    parse(&path("~/.config/föot", "föot")).unwrap();
+}

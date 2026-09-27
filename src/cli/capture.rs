@@ -67,12 +67,7 @@ pub fn plan(paths: &Paths, name: &str, from: &[PathBuf]) -> Result<Capture> {
     }
     // The same check `paths::load` makes, made before anything reads a disk:
     // a profile name is a directory name.
-    if name.contains('/') || name == "." || name == ".." {
-        return Err(Error::Manifest {
-            profile: name.to_string(),
-            detail: "profile name must be a single directory name".into(),
-        });
-    }
+    crate::cli::paths::check_profile_name(name)?;
     let dir = paths.profile_dir(name);
     if read::lstat_or_absent(&dir)?.is_some() {
         return Err(Error::Refused {

@@ -1,0 +1,45 @@
+---
+source: tests/rescue.rs
+expression: "common::redact(&text, &f)"
+---
+#!/bin/sh
+# ricepilot rescue script — restores generation 0000.
+# profile: old\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #
+# written: 20260921T101112Z
+#
+# Run it from a TTY with:  sh <this file>   — it needs no ricepilot, no D-Bus,
+# no hyprctl and no PATH. Every command below is an absolute path, every step is
+# written out in full, and nothing here removes anything: a link this generation
+# did not have is moved into
+#     <HOME>/.local/state/ricepilot/attic/rescue-0000
+#
+# It reports each step and carries on past a failure, so one destination it
+# cannot restore does not cost you the ones it can. Read the output.
+
+# <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER # had nothing here; displace it
+if /usr/bin/mkdir -p '<HOME>/.local/state/ricepilot/attic/rescue-0000<HOME>/.config' && /usr/bin/mv -T '<HOME>/.config/gone
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #' '<HOME>/.local/state/ricepilot/attic/rescue-0000<HOME>/.config/gone
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #'; then
+  echo 'ok      <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+else
+  echo 'FAILED  <HOME>/.config/gone\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+fi
+
+# <HOME>/.config/x\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER # -> <HOME>/rice/old\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #/hypr
+if /usr/bin/ln -sT '<HOME>/rice/old
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #/hypr' '<HOME>/.config/x
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #.rp-rescue' && /usr/bin/mv -T '<HOME>/.config/x
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #.rp-rescue' '<HOME>/.config/x
+echo INJECTED-FROM-RESCUE
+: > INJECTED-MARKER #'; then
+  echo 'ok      <HOME>/.config/x\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+else
+  echo 'FAILED  <HOME>/.config/x\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #'
+fi
+
+echo 'ricepilot: rescue finished. log out and back in.'

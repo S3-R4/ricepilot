@@ -80,6 +80,11 @@ activation = "relogin"                    # relogin | live | never
   `--strict`, which refuses it ([DECISIONS.md](DECISIONS.md) D59).
 * `generated` — paths a theme engine or installer rewrites. These are not
   profile content; they are backed up to the attic on switch and never linked.
+* No value — `name`, `root`, a `dest`, a `src`, a `volatile` glob, a
+  `generated` path — may contain a control character (a newline, a tab, an
+  escape), and neither may a profile's directory name: they reach
+  `rescue.sh`'s comments and the commands ricepilot prints
+  ([DECISIONS.md](DECISIONS.md) D68).
 
 ### Why `generated` exists
 

@@ -200,6 +200,32 @@ impl Profile {
     }
 }
 
+/// A profile name is a directory name under `profiles/`: one component, not
+/// `.`/`..`, and no control character. The same check wherever a name enters
+/// — loading one, `init`, `capture` — so each refuses in the same words.
+pub fn check_profile_name(name: &str) -> Result<()> {
+    // Checked first, so no refusal prints the raw name. A directory under
+    // `profiles/` can be named anything the filesystem allows; the name
+    // reaches rescue.sh and printed commands (D68).
+    if crate::manifest::has_control(name) {
+        return Err(Error::Manifest {
+            profile: format!("{name:?}"),
+            detail: "the profile name contains a control character (a newline, tab, escape \
+                     or the like). it is a directory name under profiles/, and ricepilot \
+                     writes it into rescue.sh and into commands it prints, where a newline \
+                     would start another line (D68)"
+                .into(),
+        });
+    }
+    if name.contains('/') || name == "." || name == ".." {
+        return Err(Error::Manifest {
+            profile: name.to_string(),
+            detail: "profile name must be a single directory name".into(),
+        });
+    }
+    Ok(())
+}
+
 /// Load one profile by name.
 pub fn load(paths: &Paths, name: &str) -> Result<Profile> {
     load_via(&Live, paths, name)
@@ -209,12 +235,7 @@ pub fn load(paths: &Paths, name: &str) -> Result<Profile> {
 /// construction, uses (D60). One loader, so both refuse the same things in
 /// the same words.
 pub fn load_via(look: &dyn Look, paths: &Paths, name: &str) -> Result<Profile> {
-    if name.contains('/') || name == "." || name == ".." {
-        return Err(Error::Manifest {
-            profile: name.to_string(),
-            detail: "profile name must be a single directory name".into(),
-        });
-    }
+    check_profile_name(name)?;
     let manifest_path = paths.manifest_path(name);
     if look.lstat(&paths.profile_dir(name))?.is_none() {
         return Err(Error::Manifest {

@@ -261,3 +261,117 @@ fn a_generation_with_no_destinations_still_produces_a_runnable_script() {
     let script = rescue::regenerate(&f.state(), &g).unwrap();
     assert!(run_script(&script).contains("managed no destinations"));
 }
+
+/// A path carrying `\n<command> #` is the way to inject into a generated
+/// script's `#` comments: the newline ends the comment and the next line is
+/// run. Manifests refuse one (D68), but the script also names paths read
+/// back from the live filesystem — here a pre-existing link and its target,
+/// recorded by generation 0000 — so the script escapes them itself.
+///
+/// Executed by a real `/bin/sh`: no line it prints is the injected command's
+/// output, no marker file appears, and the link with the newline in its name
+/// is still restored, since the command acting on it is given the real path.
+#[test]
+fn a_newline_in_a_path_from_the_live_filesystem_cannot_inject_a_command() {
+    let f = Fixture::new_in("m3", "rescue_newline");
+    let payload = "\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #";
+    let old = f.dir(&format!("rice/old{payload}"));
+    f.dir(&format!("rice/old{payload}/hypr"));
+    f.dir(".config");
+    let dest = f.link(&format!(".config/x{payload}"), &old.join("hypr"));
+    // A destination generation 0000 had nothing at: it is displaced into the
+    // rescue attic, whose comment names the attic path too.
+    let gone = f.path(&format!(".config/gone{payload}"));
+    let g = Generation::observe(
+        0,
+        format!("old{payload}"),
+        WHEN,
+        &[dest.clone(), gone.clone()],
+    )
+    .unwrap();
+
+    let elsewhere = f.dir("rice/other");
+    f.link(&format!(".config/x{payload}"), &elsewhere);
+    f.link(&format!(".config/gone{payload}"), &elsewhere);
+
+    let script = rescue::regenerate(&f.state(), &g).unwrap();
+    let text = read::slurp(&script).unwrap();
+
+    // Parsed as a shell would: every comment line is one line, with the
+    // control characters written out rather than emitted.
+    for line in text.lines().filter(|l| l.starts_with('#')) {
+        assert!(!line.chars().any(char::is_control), "{line:?}");
+    }
+    assert!(
+        text.contains(r"# profile: old\necho INJECTED-FROM-RESCUE\n: > INJECTED-MARKER #"),
+        "{text}"
+    );
+    // Tokenised as `sh` does it: outside single quotes, `#` at the start of
+    // a word runs to the end of the line and `\` escapes one character. What
+    // is left — the code `sh` runs, quotes' contents aside — never contains
+    // the payload.
+    let code = unquoted_code(&text);
+    assert!(!code.contains("INJECTED"), "{code}");
+
+    let mut cmd = common::sh(&script);
+    let cwd = f.dir("cwd");
+    cmd.current_dir(&cwd);
+    let out = cmd.output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.lines().any(|l| l == "INJECTED-FROM-RESCUE"),
+        "the payload ran:\n{stdout}"
+    );
+    assert!(read::lstat_or_absent(&cwd.join("INJECTED-MARKER"))
+        .unwrap()
+        .is_none());
+    assert_eq!(read::readlink(&dest).unwrap(), old.join("hypr"));
+    assert!(read::lstat_or_absent(&gone).unwrap().is_none());
+
+    insta::assert_snapshot!(common::redact(&text, &f));
+}
+
+/// The parts of a script `sh` would read as code rather than as a comment or
+/// the inside of single quotes. Enough of the POSIX tokeniser for what the
+/// rescue script uses: single quotes, `\` outside them, `#` comments.
+fn unquoted_code(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    let mut word_start = true;
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => {
+                for q in chars.by_ref() {
+                    if q == '\'' {
+                        break;
+                    }
+                }
+                out.push_str("''");
+                word_start = false;
+            }
+            '\\' => {
+                chars.next();
+                word_start = false;
+            }
+            '#' if word_start => {
+                for q in chars.by_ref() {
+                    if q == '\n' {
+                        out.push('\n');
+                        break;
+                    }
+                }
+                word_start = true;
+            }
+            _ => {
+                out.push(c);
+                word_start = c.is_whitespace() || ";&|()".contains(c);
+            }
+        }
+    }
+    out
+}

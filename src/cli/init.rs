@@ -115,12 +115,7 @@ pub fn plan_it(paths: &Paths, root: Option<&std::path::Path>, name: Option<&str>
                 why: "has no final path component to name the profile after; pass `--name`".into(),
             })?,
     };
-    if name.contains('/') || name == "." || name == ".." {
-        return Err(Error::Manifest {
-            profile: name,
-            detail: "profile name must be a single directory name".into(),
-        });
-    }
+    crate::cli::paths::check_profile_name(&name)?;
     let dir = paths.profile_dir(&name);
     if read::lstat_or_absent(&dir)?.is_some() {
         return Err(Error::Refused {

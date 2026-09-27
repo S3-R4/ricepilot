@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: r.stderr
+---
+ricepilot: profile `"p\necho INJECTED #"`: the profile name contains a control character (a newline, tab, escape or the like). it is a directory name under profiles/, and ricepilot writes it into rescue.sh and into commands it prints, where a newline would start another line (D68)

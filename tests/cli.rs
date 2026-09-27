@@ -360,3 +360,20 @@ fn rescue_prints_the_path_and_the_command() {
     assert_eq!(r.code, 0, "{}", r.stderr);
     insta::assert_snapshot!(r.stdout);
 }
+
+/// A directory under `profiles/` can be given any name the filesystem allows,
+/// a newline included. Its name reaches rescue.sh and printed commands, so
+/// loading it is refused, naming the rule, and the refusal shows the name
+/// escaped rather than printing the newline (D68).
+#[test]
+fn a_profile_directory_named_with_a_newline_is_refused() {
+    let f = Fixture::new("cli_newline_profile");
+    f.profile("p\necho INJECTED #", "name = \"p\\necho INJECTED #\"\n");
+    for args in [vec!["list"], vec!["plan", "p\necho INJECTED #"]] {
+        let r = run(&f, &args);
+        assert_eq!(r.code, 2, "{args:?}: {}", r.stderr);
+        assert!(r.stdout.is_empty(), "{}", r.stdout);
+        assert_eq!(r.stderr.lines().count(), 1, "{:?}", r.stderr);
+        insta::assert_snapshot!(format!("newline_profile_{}", args[0]), r.stderr);
+    }
+}

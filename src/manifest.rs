@@ -142,10 +142,62 @@ pub fn parse(text: &str) -> Result<Manifest> {
     Ok(manifest)
 }
 
+/// Whether `s` holds a control character: a newline, a carriage return, a
+/// tab, an escape, a DEL or a C1 control.
+pub fn has_control(s: &str) -> bool {
+    s.chars().any(char::is_control)
+}
+
+/// Why a control character is refused, for every field that can hold one.
+const CONTROL_WHY: &str = "contains a control character (a newline, tab, escape or the like). \
+     ricepilot writes these values into comments in rescue.sh and prints them in commands for \
+     you to run, where a newline would end the line and start another; a value that can do \
+     that is refused, not escaped (D68)";
+
+/// Refuse a control character anywhere a manifest names a string or path.
+/// The value is shown `{:?}`-escaped, so the refusal itself cannot carry one.
+fn check_no_control(m: &Manifest) -> Result<()> {
+    if has_control(&m.name) {
+        return Err(invalid(
+            &format!("{:?}", m.name),
+            format!("`name` {CONTROL_WHY}"),
+        ));
+    }
+    let mut fields: Vec<(&str, String)> = Vec::new();
+    if let Some(r) = &m.root {
+        fields.push(("root", r.to_string_lossy().into_owned()));
+    }
+    for r in &m.requires {
+        fields.push(("requires", r.clone()));
+    }
+    if let Some(d) = &m.hypr_dialect {
+        fields.push(("hypr_dialect", d.clone()));
+    }
+    for p in &m.paths {
+        fields.push(("dest", p.dest.to_string_lossy().into_owned()));
+        fields.push(("src", p.src.to_string_lossy().into_owned()));
+    }
+    for v in &m.volatile {
+        fields.push(("volatile", v.clone()));
+    }
+    for g in &m.generated {
+        fields.push(("generated", g.to_string_lossy().into_owned()));
+    }
+    match fields.into_iter().find(|(_, v)| has_control(v)) {
+        Some((field, value)) => Err(invalid(
+            &m.name,
+            format!("`{field} = {value:?}` {CONTROL_WHY}"),
+        )),
+        None => Ok(()),
+    }
+}
+
 fn validate(m: &Manifest) -> Result<()> {
     if m.name.is_empty() {
         return Err(invalid("<unnamed>", "`name` must not be empty"));
     }
+    // First, so no later message interpolates a raw control character.
+    check_no_control(m)?;
     if m.name.contains('/') || m.name == "." || m.name == ".." {
         return Err(invalid(
             &m.name,

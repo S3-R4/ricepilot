@@ -2296,3 +2296,52 @@ What remains unverified: the refusal set is from reading hyprlang's
 behaviour, not from running the real parser against each case (R1 — the
 real `Hyprland` is not run here outside `RICEPILOT_LIVE_TESTS=1`).
 
+## D68 — No control character in a manifest or a profile name, and none emitted raw into `rescue.sh`
+
+*M5, red-team #2 finding 2.* `rescue::script` wrote the profile name, the
+generation's timestamp, the attic path and every destination and link
+target into `#` comments as they were. A newline ends a comment in `sh`, so
+a `dest = "~/.config/x\necho INJECTED #"` in a `profile.toml` — which
+manifest validation accepted — put `echo INJECTED` on a line of its own in
+the script a user runs from a TTY when nothing else works. The red-team
+fixture did exactly that. The commands themselves were never the problem:
+`quote` single-quotes every argument, and a newline inside single quotes is
+just a character.
+
+**Two layers, because the script does not only name manifest values.**
+
+* **Refused where a value enters.** `manifest::validate` now refuses a
+  control character (`char::is_control`: C0, DEL, C1 — newline, carriage
+  return, tab, escape included) in `name`, `root`, `requires`,
+  `hypr_dialect`, every `dest` and `src`, and every `volatile` and
+  `generated` entry, before any other check can interpolate one into a
+  message; the refusal shows the value `{:?}`-escaped and names this D.
+  `cli::paths::check_profile_name` refuses one in a profile's directory
+  name, and is now the one check `load`, `init` and `capture` all make, so
+  a directory hand-made under `profiles/` and a `--name` typed at `init` are
+  refused in the same words. Refusing rather than escaping here: a path
+  with a newline in it is not one a user meant to manage, and every place
+  that prints a value would otherwise have to get the escaping right.
+* **Escaped where the script is written.** The script also names paths the
+  manifest never saw: generation `0000` records links and their targets
+  as `observe` found them on the live filesystem, the attic is under
+  whatever `$HOME` is, and a generation file on disk can be edited. So
+  `rescue::printable` writes every control character in a comment or an
+  `echo` out as `\n`, `\t`, `\u{1b}` — never raw — and the commands that act
+  on a path are still given its real bytes, single-quoted, so a link whose
+  name really holds a newline is still restored. For every path without a
+  control character the script is byte-for-byte what it was, so the
+  staleness comparison in `doctor` and `--relogin` is unchanged.
+
+`tests/rescue.rs` builds that case from real files — a pre-existing link
+and target whose names carry `\necho INJECTED…\n: > INJECTED-MARKER #` —
+runs the script with a real `/bin/sh`, and asserts no injected output, no
+marker file, and the link restored; it also tokenises the script as `sh`
+would (single quotes, `\`, `#` comments) and asserts the payload appears in
+no code outside quotes.
+
+Not covered: the commands `doctor` and RECOVERY.md print are not a script,
+and a path from the live filesystem with a newline in it is printed there
+inside single quotes, across two lines. Copied whole it is one argument;
+it is not escaped.
+

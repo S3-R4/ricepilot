@@ -12,5 +12,7 @@ a relative root
   exit 2  ricepilot: refusing: must be an absolute path or start with `~` (rice/caelestia) [R1]
 a profile name that is a path
   exit 2  ricepilot: profile `../escape`: profile name must be a single directory name
+a profile name with a newline in it (D68)
+  exit 2  ricepilot: profile `"p\necho INJECTED #"`: the profile name contains a control character (a newline, tab, escape or the like). it is a directory name under profiles/, and ricepilot writes it into rescue.sh and into commands it prints, where a newline would start another line (D68)
 registering a profile that already exists
   exit 2  ricepilot: refusing: profile `caelestia` is already registered. ricepilot never writes over a profile; `ricepilot show caelestia` says what it holds (<HOME>/.local/share/ricepilot/profiles/caelestia) [R2]
