@@ -63,8 +63,14 @@ pub struct Request {
     pub requires: Vec<String>,
     /// The profile tree to record a blake3 manifest of, and the globs to
     /// exclude. `None` when there is no single tree to hash — rolling back to
-    /// generation `0000`, whose links may point anywhere.
+    /// generation `0000`, whose links may point anywhere. Phase A also
+    /// compares this tree with the manifest recorded last time, and reports
+    /// what differs (D59).
     pub manifest_of: Option<(PathBuf, Vec<String>)>,
+    /// `--strict`: refuse, rather than report and go ahead past, profile
+    /// drift, a profile that could not be compared, and a Hyprland config
+    /// that was not checked (D59). `switch` only; a rollback is never strict.
+    pub strict: bool,
 }
 
 impl Request {
@@ -191,6 +197,65 @@ pub fn source_facts(targets: &[Target]) -> Result<Vec<plan::SourceFact>> {
     Ok(out)
 }
 
+/// The profile tree a switch is about to link, against the manifest
+/// ricepilot recorded the last time it switched to it: the walk and the
+/// comparison `verify` uses, `volatile` excluded (D59). Read-only.
+///
+/// What cannot be compared — nothing recorded yet, a recorded manifest or a
+/// tree that cannot be read — is a fact to report, not a failure: without
+/// `--strict` the switch goes ahead exactly as it did before this check
+/// existed (and says so when a read failed).
+pub fn drift(
+    state: &std::path::Path,
+    profile: &str,
+    root: &std::path::Path,
+    volatile: &[String],
+    id: &str,
+) -> plan::Drift {
+    let manifest = verify::manifest_path(state, profile);
+    let not_compared = |why: String, read_failed: bool| plan::Drift::NotCompared {
+        profile: profile.to_string(),
+        manifest: manifest.clone(),
+        why,
+        read_failed,
+    };
+    let recorded = match verify::load(&manifest) {
+        Ok(Some(m)) => m,
+        Ok(None) => return not_compared("nothing has been recorded for it yet".into(), false),
+        // `verify::parse` already says what it could not do.
+        Err(Error::Refused { why, .. }) => return not_compared(why, true),
+        Err(e) => {
+            return not_compared(
+                format!("the recorded manifest could not be read: {e}"),
+                true,
+            )
+        }
+    };
+    let now = match verify::build(profile, root, volatile, id) {
+        Ok(m) => m,
+        Err(Error::Refused { why, path, .. }) => {
+            return not_compared(
+                format!("its tree could not be read: {} {why}", path.display()),
+                true,
+            )
+        }
+        Err(e) => return not_compared(format!("its tree could not be read: {e}"), true),
+    };
+    let diffs = verify::compare(&recorded, &now);
+    plan::Drift::Compared {
+        profile: profile.to_string(),
+        manifest: manifest.clone(),
+        recorded: recorded.created,
+        changed: diffs
+            .iter()
+            .filter(|d| d.is_substantive())
+            .map(|d| d.to_string())
+            .collect(),
+        touched: diffs.iter().filter(|d| !d.is_substantive()).count(),
+        volatile: volatile.to_vec(),
+    }
+}
+
 /// Phase A, B and C.
 pub fn run(paths: &Paths, req: &Request, commit: bool) -> Result<Outcome> {
     run_with(paths, req, commit, &mut |_| Ok(()))
@@ -252,14 +317,24 @@ pub fn run_with(
     // Its one effect is the scratch copy under `state/verify/<id>/`, in
     // ricepilot's own state and never the user's config (D55).
     let hypr = crate::hyprverify::check(&paths.home, &paths.state, &id, &req.targets, &req.retire)?;
+    let drift = req
+        .manifest_of
+        .as_ref()
+        .map(|(root, volatile)| drift(&paths.state, &req.profile, root, volatile, &id));
     let ctx = plan::PlanContext::new(paths.home.clone(), attic.clone(), attic_dev)
         .with_sources(source_facts(&req.targets)?)
         .missing_requires(crate::requires::missing(&req.requires)?)
         .verify_failed(hypr.as_ref().and_then(|o| o.failure()))
-        .retiring(req.retire.clone());
+        .retiring(req.retire.clone())
+        .strictly(
+            req.strict,
+            drift.clone(),
+            hypr.as_ref().and_then(|o| o.not_checked()),
+        );
     let plan = plan::plan(&observed, &req.targets, &ctx);
 
-    let header = render::switch_header(req, &observed, hypr.as_ref(), &plan, commit);
+    let header =
+        render::switch_header(req, &observed, hypr.as_ref(), drift.as_ref(), &plan, commit);
 
     // A decline is the complete list of reasons and a non-zero exit, with zero
     // side effects (R4). It is not an `Err` because the itemised list is the

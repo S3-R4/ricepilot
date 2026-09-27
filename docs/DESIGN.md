@@ -69,8 +69,10 @@ activation = "relogin"                    # relogin | live | never
   ledger and a three-state divergence check) is v1.1. `generated` and
   `volatile` are *classifications*: they are never activated at all.
 * `volatile` — globs excluded from hashing, seeded from the profile's
-  `.gitignore` ∪ the discovered runtime writers. Drift here is reported and
-  the switch proceeds, unless `--strict`.
+  `.gitignore` ∪ the discovered runtime writers. They are never compared, so
+  they never count as drift. Drift *outside* them — the profile's tree is not
+  what ricepilot last recorded — is reported and the switch proceeds, unless
+  `--strict`, which refuses it ([DECISIONS.md](DECISIONS.md) D59).
 * `generated` — paths a theme engine or installer rewrites. These are not
   profile content; they are backed up to the attic on switch and never linked.
 
@@ -146,7 +148,11 @@ the installer wrote. Refusing and telling the user is the correct outcome.
    `~/.config/hypr` is copied with every exec-family line stripped and parsed
    by `Hyprland --verify-config`, dry run included; the copy stays under
    `state/verify/<id>/`, a Lua config is not run, and a machine with no
-   Hyprland skips the check and says so (D55).
+   Hyprland skips the check and says so (D55). Also compared, not refused:
+   the target profile's tree against the manifest recorded last time,
+   `volatile` excluded — drift is printed and the switch goes ahead. Under
+   `--strict` that drift, a profile that could not be compared and a
+   Hyprland config that was NOT checked are refusals instead (D59).
 6. Print the plan. **Stop here unless `--commit`.**
 7. Probe `RENAME_EXCHANGE` (the probe writes two symlinks, so it happens after
    the commit gate and not at startup — D39).
@@ -317,6 +323,11 @@ Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
 * Confirmation has no `--yes`. The prompt always runs; `inquire` when stdin
   is a terminal, the same question text read line-wise when it is not, so a
   test drives the real confirmation rather than skipping it (D47).
+* `switch --strict` refuses what a switch otherwise reports and goes ahead
+  past: the profile's tree differing from what was recorded (outside
+  `volatile`), a profile that could not be compared, a Hyprland config the
+  sandboxed verify-config did not check. `rollback` reports the same drift
+  and is never strict (D59).
 * `switch --relogin` and `rollback --relogin` offer `uwsm stop` — the one
   subprocess that ends the session — only after a switch that completed in
   the same process, and only when every precondition of D58 holds; a dry

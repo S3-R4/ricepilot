@@ -1,0 +1,14 @@
+---
+source: tests/strict.rs
+expression: "&r.stdout[from..]"
+---
+hypr config:
+  <HOME>/rice/new/hypr/hyprland.lua was NOT checked: a Lua config is a program, and Hyprland cannot parse one without running it (NOT-POSSIBLE.md#verify-lua-config).
+
+profile drift:
+  `new` is what ricepilot recorded at <TS> (<HOME>/.local/state/ricepilot/manifests/new.toml).
+  not compared, because the manifest declares them `volatile`: **/*.log
+
+declined. nothing has been changed.
+
+  [R4] <HOME>/rice/new/hypr/hyprland.lua: was NOT checked by the sandboxed verify-config (a Lua config is a program, which ricepilot does not run; see NOT-POSSIBLE.md#verify-lua-config), and --strict switches only to a Hyprland config that was. drop --strict to switch to it anyway.

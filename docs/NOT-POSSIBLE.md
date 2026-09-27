@@ -170,7 +170,8 @@ presence decides, whatever `hypr_dialect` says.
 the config was **not** checked. Whether it works is found out at the next
 login, with the recovery ladder in
 [DESIGN.md §7](DESIGN.md#7-failure-and-recovery-ladder) — `rescue.sh` from a
-TTY — as the way back.
+TTY — as the way back. `switch --strict` refuses it instead
+([DECISIONS.md](DECISIONS.md) D59).
 
 ## repairing-foreign-state
 

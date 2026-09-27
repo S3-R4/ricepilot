@@ -1,0 +1,11 @@
+---
+source: tests/strict.rs
+expression: drift_and_verdict(&r.stdout)
+---
+profile drift:
+  `new` was NOT compared with what ricepilot recorded: the recorded manifest does not parse: key with no value, expected `=`.
+  (<HOME>/.local/state/ricepilot/manifests/new.toml)
+  reported, not refused.
+  `--strict` refuses instead.
+
+applying 9 operation(s):

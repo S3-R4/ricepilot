@@ -150,6 +150,27 @@ pub enum Refusal {
     NotObserved {
         dest: PathBuf,
     },
+    /// `--strict`: the profile's tree is not what ricepilot recorded the last
+    /// time it switched to it — outside the paths declared `volatile`, which
+    /// are never compared (D59).
+    ProfileDrifted {
+        profile: String,
+        manifest: PathBuf,
+        changed: Vec<String>,
+    },
+    /// `--strict`: the profile's tree could not be compared with a recorded
+    /// manifest — usually because none has been recorded yet (D59).
+    ProfileNotCompared {
+        profile: String,
+        manifest: PathBuf,
+        why: String,
+    },
+    /// `--strict`: the sandboxed verify-config did not check the Hyprland
+    /// config this switch would link, and says why (D55, D59).
+    VerifyConfigNotChecked {
+        file: PathBuf,
+        why: String,
+    },
 }
 
 impl Refusal {
@@ -170,6 +191,11 @@ impl Refusal {
             | Refusal::Mountpoint { .. }
             | Refusal::NestedDest { .. }
             | Refusal::MissingRequires { .. } => "R4",
+            // A complete pre-flight, which `--strict` defines as one that
+            // compared and checked everything it could name (D59).
+            Refusal::ProfileDrifted { .. }
+            | Refusal::ProfileNotCompared { .. }
+            | Refusal::VerifyConfigNotChecked { .. } => "R4",
         }
     }
 }
@@ -272,6 +298,52 @@ impl fmt::Display for Refusal {
                  picture of the filesystem.",
                 dest.display()
             ),
+            Refusal::ProfileDrifted {
+                profile,
+                manifest,
+                changed,
+            } => {
+                const SHOWN: usize = 5;
+                // `verify`'s lines are padded into columns; one space here.
+                let mut list: Vec<String> = changed
+                    .iter()
+                    .take(SHOWN)
+                    .map(|c| c.split_whitespace().collect::<Vec<_>>().join(" "))
+                    .collect();
+                let more = changed.len().saturating_sub(SHOWN);
+                if more > 0 {
+                    list.push(format!("… and {more} more"));
+                }
+                write!(
+                    f,
+                    "{}: profile `{profile}` is not what ricepilot last recorded of it; {} path(s) \
+                     differ outside `volatile` ({}). --strict switches only to \
+                     a profile that is. review it with `ricepilot verify {profile}`, then switch \
+                     without --strict to take it as it is.",
+                    manifest.display(),
+                    changed.len(),
+                    list.join("; ")
+                )
+            }
+            Refusal::ProfileNotCompared {
+                profile,
+                manifest,
+                why,
+            } => write!(
+                f,
+                "{}: profile `{profile}` could not be compared with what ricepilot recorded \
+                 ({why}), and --strict does not switch to a profile it could not compare. a \
+                 manifest is recorded each time ricepilot switches to a profile or captures \
+                 one; switch without --strict once to record it.",
+                manifest.display()
+            ),
+            Refusal::VerifyConfigNotChecked { file, why } => write!(
+                f,
+                "{}: was NOT checked by the sandboxed verify-config ({why}), and --strict \
+                 switches only to a Hyprland config that was. drop --strict to switch to it \
+                 anyway.",
+                file.display()
+            ),
         }
     }
 }
@@ -315,6 +387,35 @@ pub struct SourceFact {
     pub state: SourceState,
 }
 
+/// The target profile's tree against the manifest ricepilot recorded the last
+/// time it switched to it, gathered before planning with the walk and the
+/// comparison `verify` uses (`volatile` excluded). Data, so [`plan`] stays
+/// pure (D59).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Drift {
+    /// Not compared: no manifest has been recorded for the profile
+    /// (`read_failed` false), or it or the tree could not be read (true).
+    /// `why` says which.
+    NotCompared {
+        profile: String,
+        manifest: PathBuf,
+        why: String,
+        read_failed: bool,
+    },
+    Compared {
+        profile: String,
+        manifest: PathBuf,
+        /// When the recorded manifest was taken.
+        recorded: String,
+        /// Every difference that is drift, as `verify` prints it.
+        changed: Vec<String>,
+        /// Paths rewritten with identical content: reported, never drift.
+        touched: usize,
+        /// The globs that were not compared.
+        volatile: Vec<String>,
+    },
+}
+
 /// The facts a plan needs that are not per-destination. All of them are
 /// *data*: gathering them is IO, using them is not, which is what keeps
 /// [`plan`] pure.
@@ -348,6 +449,15 @@ pub struct PlanContext {
     /// `Hyprland --verify-config` run, and what was reported, gathered by
     /// [`crate::hyprverify::check`] before planning (D55).
     pub verify_failed: Option<(PathBuf, String)>,
+    /// `--strict`: refuse what a switch otherwise reports and proceeds past —
+    /// profile drift, a profile with nothing recorded to compare, and a
+    /// Hyprland config the sandboxed verify-config did not check (D59).
+    pub strict: bool,
+    /// The target profile against its recorded manifest. `None` when there
+    /// is no single profile tree — rolling back to generation `0000`.
+    pub drift: Option<Drift>,
+    /// The Hyprland config that was not checked, and why (D55).
+    pub unchecked: Option<(PathBuf, String)>,
 }
 
 impl PlanContext {
@@ -362,6 +472,9 @@ impl PlanContext {
             sources: Vec::new(),
             retire: Vec::new(),
             verify_failed: None,
+            strict: false,
+            drift: None,
+            unchecked: None,
         }
     }
 
@@ -386,6 +499,20 @@ impl PlanContext {
     /// The destinations this switch stops owning.
     pub fn retiring(mut self, retire: Vec<PathBuf>) -> Self {
         self.retire = retire;
+        self
+    }
+
+    /// Whether to refuse rather than report (`--strict`), and the two
+    /// report-and-proceed facts it applies to (D59).
+    pub fn strictly(
+        mut self,
+        strict: bool,
+        drift: Option<Drift>,
+        unchecked: Option<(PathBuf, String)>,
+    ) -> Self {
+        self.strict = strict;
+        self.drift = drift;
+        self.unchecked = unchecked;
         self
     }
 }
@@ -464,6 +591,40 @@ pub fn plan(observed: &[Observed], target: &[Target], ctx: &PlanContext) -> Plan
             file: file.clone(),
             detail: detail.clone(),
         });
+    }
+
+    // What a switch reports and goes ahead past, unless `--strict` (D59).
+    // Content-identical rewrites (`touched`) are never drift.
+    if ctx.strict {
+        match &ctx.drift {
+            Some(Drift::NotCompared {
+                profile,
+                manifest,
+                why,
+                ..
+            }) => refusals.push(Refusal::ProfileNotCompared {
+                profile: profile.clone(),
+                manifest: manifest.clone(),
+                why: why.clone(),
+            }),
+            Some(Drift::Compared {
+                profile,
+                manifest,
+                changed,
+                ..
+            }) if !changed.is_empty() => refusals.push(Refusal::ProfileDrifted {
+                profile: profile.clone(),
+                manifest: manifest.clone(),
+                changed: changed.clone(),
+            }),
+            Some(Drift::Compared { .. }) | None => {}
+        }
+        if let Some((file, why)) = &ctx.unchecked {
+            refusals.push(Refusal::VerifyConfigNotChecked {
+                file: file.clone(),
+                why: why.clone(),
+            });
+        }
     }
 
     // Two managed destinations where one contains the other: the inner one's

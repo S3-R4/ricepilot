@@ -1,0 +1,20 @@
+---
+source: tests/strict.rs
+expression: r.stdout
+---
+switch: to profile `new`
+
+observed:
+  owned link     <HOME>/.config/hypr
+  owned link     <HOME>/.config/foot
+  absent         <HOME>/.config/btop
+
+profile drift:
+  `new` has changed since ricepilot recorded it at <TS> (<HOME>/.local/state/ricepilot/manifests/new.toml):
+    added        foot/extra.ini (file)
+    changed      hypr/marker
+  not compared, because the manifest declares them `volatile`: **/*.log
+
+declined. nothing has been changed.
+
+  [R4] <HOME>/.local/state/ricepilot/manifests/new.toml: profile `new` is not what ricepilot last recorded of it; 2 path(s) differ outside `volatile` (added foot/extra.ini (file); changed hypr/marker). --strict switches only to a profile that is. review it with `ricepilot verify new`, then switch without --strict to take it as it is.

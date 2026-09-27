@@ -19,6 +19,7 @@
 //! * No `Hyprland` binary: nothing to check with; the plan says so and the
 //!   switch goes ahead. Whether Hyprland must be installed is what `requires`
 //!   is for, and the requires-check refuses when it is not (D53).
+//! * Either kind of "not checked" is a refusal under `--strict` (D59).
 //! * Otherwise the copy is made under `state/verify/<id>/`, Hyprland is run
 //!   on it, and a non-zero exit — or a config that could not be copied
 //!   faithfully — declines the switch with `Refusal::VerifyConfigFailed`.
@@ -56,7 +57,8 @@ pub enum Outcome {
         scratch: Option<PathBuf>,
         detail: String,
     },
-    /// Not checked, and why. Does not decline the switch.
+    /// Not checked, and why. Does not decline the switch, unless it is
+    /// `--strict` (D59).
     NotChecked { config: PathBuf, why: NotChecked },
 }
 
@@ -73,6 +75,26 @@ impl Outcome {
     pub fn failure(&self) -> Option<(PathBuf, String)> {
         match self {
             Outcome::Failed { config, detail, .. } => Some((config.clone(), detail.clone())),
+            _ => None,
+        }
+    }
+
+    /// The config that was not checked, and why in a few words: what
+    /// `--strict` refuses instead of reporting (D59).
+    pub fn not_checked(&self) -> Option<(PathBuf, String)> {
+        match self {
+            Outcome::NotChecked { config, why } => Some((
+                config.clone(),
+                match why {
+                    NotChecked::NoHyprland => format!(
+                        "`Hyprland` is not installed in {}",
+                        exec::BIN_DIRS.join(", ")
+                    ),
+                    NotChecked::Lua => "a Lua config is a program, which ricepilot does not \
+                                        run; see NOT-POSSIBLE.md#verify-lua-config"
+                        .to_string(),
+                },
+            )),
             _ => None,
         }
     }

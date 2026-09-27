@@ -1,0 +1,11 @@
+---
+source: tests/strict.rs
+expression: drift_and_verdict(&r.stdout)
+---
+profile drift:
+  `old` has changed since ricepilot recorded it at <TS> (<HOME>/.local/state/ricepilot/manifests/old.toml):
+    changed      hypr/marker
+  not compared, because the manifest declares them `volatile`: **/*.log
+  reported, not refused: the profile is what it is now, and that is what the rollback links.
+
+applying 9 operation(s):

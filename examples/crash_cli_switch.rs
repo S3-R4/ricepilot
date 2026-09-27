@@ -57,6 +57,7 @@ fn main() {
         retire,
         requires: profile.manifest.requires.clone(),
         manifest_of: Some((profile.root(&paths.home), profile.manifest.volatile.clone())),
+        strict: false,
     };
 
     let _ = ricepilot::cli::switch::run_with(&paths, &req, true, &mut |i| {

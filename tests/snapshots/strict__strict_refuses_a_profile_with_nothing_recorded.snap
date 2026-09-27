@@ -1,0 +1,10 @@
+---
+source: tests/strict.rs
+expression: drift_and_verdict(&r.stdout)
+---
+profile drift:
+  `new` was NOT compared with what ricepilot recorded: nothing has been recorded for it yet.
+  (<HOME>/.local/state/ricepilot/manifests/new.toml)
+
+declined. nothing has been changed.
+  [R4] <HOME>/.local/state/ricepilot/manifests/new.toml: profile `new` could not be compared with what ricepilot recorded (nothing has been recorded for it yet), and --strict does not switch to a profile it could not compare. a manifest is recorded each time ricepilot switches to a profile or captures one; switch without --strict once to record it.

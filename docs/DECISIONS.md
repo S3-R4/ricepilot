@@ -1255,8 +1255,8 @@ switch would link at `~/.config/hypr` has a `hyprland.lua`, that is what
 Hyprland 0.55 loads (its own log says "Lua config not found, using legacy
 config" otherwise), and a Lua config is a program — `os.execute` is one call
 away — so no line-stripping makes it safe to parse. It is not run, the plan
-says "NOT checked", and the switch goes ahead
-(`NOT-POSSIBLE.md#verify-lua-config`). Otherwise `hyprland.conf` is checked.
+says "NOT checked", and the switch goes ahead — unless `--strict`, which
+refuses it (D59) — (`NOT-POSSIBLE.md#verify-lua-config`). Otherwise `hyprland.conf` is checked.
 `hypr_dialect` in the manifest decides nothing here. A tree with neither file
 ships no Hyprland config and is not checked; that Hyprland would then write a
 default config into the profile is left for `doctor`.
@@ -1268,7 +1268,8 @@ only "the syntax parsed", and on a machine with no `Hyprland` in `/usr/bin`
 or `/usr/local/bin` there is nothing to answer it with — and, if the profile
 needs Hyprland, `requires = ["hyprland"]` is where that is said and refused.
 The plan prints `was NOT checked` and why, so a skipped check is never
-mistaken for a passed one (R7). Nothing is written in that case.
+mistaken for a passed one (R7), and `--strict` refuses it (D59). Nothing is
+written in that case.
 
 **When it runs, and the one effect it has.** In phase A of `switch` and
 `rollback` (one code path, so rolling back into a profile checks it too;
@@ -1642,3 +1643,81 @@ socket; the bus address is required to be set, not checked to be this
 user's; systemd's `invocation:` records are its implementation, not a
 documented interface; and a ricepilot started with a different
 `RICEPILOT_RUNTIME_DIR` takes a different lock, as it always has.
+
+## D59 — `--strict` refuses what a switch otherwise reports and goes ahead past: drift outside `volatile`, a profile it could not compare, a config it did not check
+
+*M5.* DESIGN §3 said drift is "reported and the switch proceeds, unless
+`--strict`", and until now a switch reported no drift at all: the only
+report-and-proceed outcome it had was the verify-config's "NOT checked".
+So `--strict` needed two things — something to report, and a rule for when
+reporting becomes refusing.
+
+**What is reported: the target profile against its recorded manifest.**
+Phase A of `switch` and `rollback` (one code path, so a rollback reports it
+too) now compares the tree it is about to link with the blake3 manifest
+ricepilot recorded the last time it switched to, or captured, that profile —
+`verify`'s walk and `verify`'s comparison, the profile's current `volatile`
+globs excluded (`switch::drift`, read-only, gathered into
+`plan::Drift` so `plan()` stays pure). Substantive differences are listed in
+a `profile drift:` block and the switch goes ahead: the profile is what it is
+now, and a hand edit or a `git pull` in a rice is the ordinary case. A path
+rewritten with identical content is counted and never drift, as in `verify`
+(D34). Without `--strict`, a profile that matches, or has nothing recorded
+yet, prints nothing: a block on every switch would teach the reader to skip
+the one that matters, and none of the existing output changed. A comparison
+that could not read the recorded manifest or the tree says so and goes
+ahead, as the switch did before the comparison existed (phase C records a
+fresh manifest over one that does not parse). The comparison runs in a dry run too, so the plan printed is
+the plan `--commit` acts on. It is a second walk of the tree (phase C
+records one); that is the price of reporting before rather than after.
+
+**What "volatile drift" means here.** Paths matching `volatile` are, by
+declaration, rewritten by applications at runtime (`fish_variables`,
+`shell.json`), and they are excluded from the recorded manifest, so there is
+no baseline to drift from — deliberately. Recording them and refusing when
+they change would make `--strict` refuse every switch into any profile a
+running app writes into, which is all of them. So `volatile` is what the
+comparison leaves out, and says it left out ("not compared, because the
+manifest declares them `volatile`: …"), and the drift reported and refused is
+what the `volatile` list did *not* account for — an unreviewed edit, or an
+application writing where no one declared it would. That is the drift
+`--strict` is for.
+
+**What `--strict` refuses** (all `R4`, all collected, with the rest of the
+pre-flight's refusals, into one `Decline` — nothing is touched):
+
+* `ProfileDrifted` — substantive drift outside `volatile`. The refusal names
+  the recorded manifest, the count and the first five paths, and says to
+  `ricepilot verify <profile>` and switch without `--strict` to take the
+  profile as it is.
+* `ProfileNotCompared` — nothing recorded yet, a recorded manifest that does
+  not parse, or a tree that could not be walked. A check that could not be
+  made is not a check that passed (R4, D55); a switch without `--strict`
+  records the manifest, and the refusal says so.
+* `VerifyConfigNotChecked` — the sandboxed verify-config did not check the
+  Hyprland config the switch would link: a `hyprland.lua`, which is never run
+  (`NOT-POSSIBLE.md#verify-lua-config`), or no `Hyprland` installed (D55). A
+  tree with no Hyprland config at all ships nothing to check and is not
+  refused. `--strict` into a Lua profile therefore always refuses, which is
+  the honest answer: it was never checked, and never will be.
+
+Refusals are decided in `plan()` from `PlanContext::strict` and the two
+facts, so the decline is the same value in a dry run and under `--commit`. A
+no-op switch under `--strict` into a drifted profile is declined like any
+other refusal on a no-op (a missing `requires` already was).
+
+**`rollback` is never strict.** It reports drift in the profile it returns
+to, and goes ahead. It is the way back, and it is the command someone runs
+when the profile they are on is the problem; a flag that only ever adds ways
+for it to refuse would make it harder to take at exactly that moment. `plan`
+does not grow the flag either; it has always been the non-strict pre-flight.
+
+**Tested** end to end: drift reported and gone ahead past; a recorded
+manifest that does not parse reported and gone ahead past; the same drift
+refused under `--strict` with the live links, the generation and the attic
+unchanged; a volatile file rewritten and a file rewritten with its own
+content passing `--strict`; nothing recorded refused; a `hyprland.lua`
+refused (never run: it is declined before anything is looked for); a
+rollback reporting drift and going ahead. Every refusal's wording is
+snapshotted, including the two no fixture here reaches (no `Hyprland`; an
+unparseable recorded manifest).

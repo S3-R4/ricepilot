@@ -1,0 +1,13 @@
+---
+source: tests/strict.rs
+expression: drift_and_verdict(&r.stdout)
+---
+profile drift:
+  `new` has changed since ricepilot recorded it at <TS> (<HOME>/.local/state/ricepilot/manifests/new.toml):
+    added        foot/extra.ini (file)
+    changed      hypr/marker
+  not compared, because the manifest declares them `volatile`: **/*.log
+  reported, not refused: the profile is what it is now, and that is what the switch links.
+  `--strict` refuses instead.
+
+applying 9 operation(s):

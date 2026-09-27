@@ -80,7 +80,9 @@ pub enum Command {
         /// no.
         #[arg(long)]
         relogin: bool,
-        /// Treat volatile-path drift as an error instead of a report.
+        /// Refuse instead of reporting and going ahead: a profile that is
+        /// not what ricepilot recorded (outside `volatile`), one it could not
+        /// compare, and a Hyprland config it did not check.
         #[arg(long)]
         strict: bool,
     },
@@ -381,12 +383,13 @@ fn cmd_rescue(paths: &paths::Paths) -> Result<String> {
     Ok(render::rescue(&p))
 }
 
-/// `ricepilot switch <profile> [--commit] [--relogin]`.
+/// `ricepilot switch <profile> [--commit] [--relogin] [--strict]`.
 ///
 /// The target state comes from the profile manifest; the destinations to
 /// retire come from the ledger — every path ricepilot owns that this profile
 /// does not claim (D36). Everything after that is [`switch::run`], which
-/// `rollback` shares.
+/// `rollback` shares. `--strict` changes only what phase A refuses (D59);
+/// `--relogin` only what follows a completed phase C (D58).
 fn cmd_switch(
     paths: &paths::Paths,
     name: &str,
@@ -394,19 +397,8 @@ fn cmd_switch(
     relogin: bool,
     strict: bool,
 ) -> Result<Output> {
-    // A flag that is accepted and quietly ignored is worse than one that is
-    // refused: the user asked for something and was told nothing.
-    if strict {
-        return Err(Error::NotPossible {
-            anchor: "not-yet-implemented",
-            why: "`--strict` turns volatile-path drift into a refusal, and drift reporting at \
-                  switch time is M5. `ricepilot verify` compares a profile against its \
-                  recorded manifest today"
-                .into(),
-        });
-    }
-
-    let req = switch_request(paths, name)?;
+    let mut req = switch_request(paths, name)?;
+    req.strict = strict;
     finish(switch::run(paths, &req, commit)?, relogin)
 }
 
@@ -435,6 +427,7 @@ pub fn switch_request(paths: &paths::Paths, name: &str) -> Result<switch::Reques
         retire,
         requires: profile.manifest.requires.clone(),
         manifest_of: Some((root, profile.manifest.volatile.clone())),
+        strict: false,
     })
 }
 
@@ -513,6 +506,8 @@ fn cmd_rollback(paths: &paths::Paths, commit: bool, relogin: bool) -> Result<Out
         retire,
         requires,
         manifest_of,
+        // The way back is not made harder to take (D59).
+        strict: false,
     };
     finish(switch::run(paths, &req, commit)?, relogin)
 }

@@ -236,29 +236,6 @@ fn a_command_from_a_later_milestone_is_not_implemented_and_says_so() {
     insta::assert_snapshot!(r.stderr);
 }
 
-/// `--strict` is M5. Accepting a flag and quietly ignoring it is worse than
-/// refusing it: the user asked for something and was told nothing. It
-/// refuses, and the switch itself does not happen. (`--relogin` is built;
-/// `tests/relogin.rs` covers it.)
-#[test]
-fn a_flag_from_a_later_milestone_refuses_rather_than_being_ignored() {
-    let f = with_caelestia("cli_switch_flags");
-    for flag in ["--strict"] {
-        let r = run(&f, &["switch", "caelestia", "--commit", flag]);
-        assert_eq!(
-            r.code,
-            ricepilot::error::ExitCode::NotPossible as i32,
-            "{flag}: {}",
-            r.stderr
-        );
-        insta::assert_snapshot!(format!("switch{}", flag.replace('-', "_")), r.stderr);
-    }
-    // And nothing happened.
-    assert!(ricepilot::generations::current(&f.state())
-        .unwrap()
-        .is_none());
-}
-
 /// M1 ships no mutating command at all, so no fixture destination may change.
 /// This asserts the negative directly rather than trusting the dispatch table.
 #[test]

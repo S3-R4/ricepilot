@@ -11,7 +11,7 @@ use crate::hyprverify::{NotChecked, Outcome};
 use crate::journal::{Direction, Recovery};
 use crate::manifest::Manifest;
 use crate::observe::Observed;
-use crate::plan::{Plan, Refusal};
+use crate::plan::{Drift, Plan, Refusal};
 
 use super::paths::{Paths, Profile};
 
@@ -490,6 +490,7 @@ pub fn switch_header(
     req: &super::switch::Request,
     observed: &[Observed],
     hypr: Option<&Outcome>,
+    drift: Option<&Drift>,
     plan: &Plan,
     committing: bool,
 ) -> String {
@@ -516,6 +517,7 @@ pub fn switch_header(
     }
     let _ = writeln!(s);
     s.push_str(&hypr_check(hypr));
+    s.push_str(&drift_block(drift, req.kind, req.strict));
 
     match plan {
         Plan::NoOp => {
@@ -546,6 +548,117 @@ pub fn switch_header(
             let _ = write!(s, "{}", refusal_list(refusals));
         }
     }
+    s
+}
+
+/// Most differences listed in the drift block; `ricepilot verify` lists all.
+const DRIFT_SHOWN: usize = 20;
+
+/// The target profile against what was recorded (D59).
+///
+/// Printed when there is drift to report or a comparison failed to read
+/// something, and always under `--strict`: a switch without `--strict` into
+/// a profile that is what was recorded — or that has nothing recorded yet —
+/// has nothing to say here, and saying it on every switch would teach the
+/// reader to skip the block the one time it matters.
+pub fn drift_block(drift: Option<&Drift>, kind: super::switch::Kind, strict: bool) -> String {
+    let mut s = String::new();
+    let Some(drift) = drift else {
+        return s;
+    };
+    match drift {
+        Drift::NotCompared {
+            profile,
+            manifest,
+            why,
+            read_failed,
+        } => {
+            // Nothing recorded yet is the first switch into every profile;
+            // a read that failed is worth a line every time.
+            if !strict && !read_failed {
+                return s;
+            }
+            let _ = writeln!(s, "profile drift:");
+            let _ = writeln!(
+                s,
+                "  `{profile}` was NOT compared with what ricepilot recorded: {why}."
+            );
+            let _ = writeln!(s, "  ({})", manifest.display());
+            if !strict {
+                let _ = writeln!(s, "  reported, not refused.");
+                if kind == super::switch::Kind::Switch {
+                    let _ = writeln!(s, "  `--strict` refuses instead.");
+                }
+            }
+        }
+        Drift::Compared {
+            profile,
+            manifest,
+            recorded,
+            changed,
+            touched,
+            volatile,
+        } => {
+            if changed.is_empty() && !strict {
+                return s;
+            }
+            let _ = writeln!(s, "profile drift:");
+            if changed.is_empty() {
+                let _ = writeln!(
+                    s,
+                    "  `{profile}` is what ricepilot recorded at {recorded} ({}).",
+                    manifest.display()
+                );
+            } else {
+                let _ = writeln!(
+                    s,
+                    "  `{profile}` has changed since ricepilot recorded it at {recorded} ({}):",
+                    manifest.display()
+                );
+                for c in changed.iter().take(DRIFT_SHOWN) {
+                    let _ = writeln!(s, "    {c}");
+                }
+                if changed.len() > DRIFT_SHOWN {
+                    let _ = writeln!(
+                        s,
+                        "    … and {} more; `ricepilot verify {profile}` lists every one",
+                        changed.len() - DRIFT_SHOWN
+                    );
+                }
+            }
+            if *touched > 0 {
+                let _ = writeln!(
+                    s,
+                    "  {touched} further path(s) were rewritten with identical content; that is \
+                     not drift."
+                );
+            }
+            if volatile.is_empty() {
+                let _ = writeln!(
+                    s,
+                    "  nothing is declared `volatile`, so every path was compared."
+                );
+            } else {
+                let _ = writeln!(
+                    s,
+                    "  not compared, because the manifest declares them `volatile`: {}",
+                    volatile.join(", ")
+                );
+            }
+            if !changed.is_empty() && !strict {
+                let _ = writeln!(
+                    s,
+                    "  reported, not refused: the profile is what it is now, and that is what \
+                     the {} links.",
+                    kind.as_str()
+                );
+                if kind == super::switch::Kind::Switch {
+                    let _ = writeln!(s, "  `--strict` refuses instead.");
+                }
+            }
+        }
+    }
+    let _ = writeln!(s);
     s
 }
 

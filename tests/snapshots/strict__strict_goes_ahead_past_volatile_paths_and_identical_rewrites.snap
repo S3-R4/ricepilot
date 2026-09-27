@@ -1,0 +1,10 @@
+---
+source: tests/strict.rs
+expression: drift_and_verdict(&r.stdout)
+---
+profile drift:
+  `new` is what ricepilot recorded at <TS> (<HOME>/.local/state/ricepilot/manifests/new.toml).
+  1 further path(s) were rewritten with identical content; that is not drift.
+  not compared, because the manifest declares them `volatile`: **/*.log
+
+applying 9 operation(s):
