@@ -1,0 +1,17 @@
+---
+source: tests/diff.rs
+expression: r.stdout
+---
+diff: profile `old` against the live filesystem
+root: <HOME>/rice/old (by reference — ricepilot never writes here)
+
+links: all 2 destinations are as this profile has them
+  same     <HOME>/.config/hypr -> <HOME>/rice/old/hypr
+  same     <HOME>/.config/foot -> <HOME>/rice/old/foot
+
+content: NOT compared — nothing has been recorded for `old` yet.
+  (<HOME>/.local/state/ricepilot/manifests/old.toml)
+  ricepilot records a profile's tree when it captures the profile and each time it switches to it.
+
+no link differs; the content was NOT compared (above).
+nothing was changed.

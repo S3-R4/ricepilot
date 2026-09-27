@@ -103,9 +103,9 @@ Routine engineering decisions are made by the implementer and recorded in
 ## R7 — Report truthfully
 
 Failing tests are reported as failing, skipped steps as skipped, unverified
-claims as unverified. This applies to the tool's own output too: `doctor` and
-`verify` report what they observed, never what the manifest says should be
-true.
+claims as unverified. This applies to the tool's own output too: `doctor`,
+`verify` and `diff` report what they observed, never what the manifest says
+should be true, and say what they did not compare.
 
 ## The ownership predicate
 

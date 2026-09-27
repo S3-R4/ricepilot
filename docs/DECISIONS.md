@@ -1721,3 +1721,130 @@ refused (never run: it is declined before anything is looked for); a
 rollback reporting drift and going ahead. Every refusal's wording is
 snapshotted, including the two no fixture here reaches (no `Hyprland`; an
 unparseable recorded manifest).
+
+## D60 — `diff`: a profile's links and its tree against the live filesystem, read-only by construction, exit 6 on a difference and 4 when it could not look
+
+*M5.* "A profile against the live filesystem" had to be given a meaning.
+For a `dir-link` profile the live filesystem holds two things of the
+profile's, and `diff` compares both.
+
+**The links.** Each `[[path]]` a switch would act on (`dir-link`,
+`activation = "relogin"`) is classified by the ownership predicate itself —
+`observe::shape_via`, the classification half of `observe_one`, now reading
+through a `Look` so that the predicate `diff` reports is the one a switch
+acts on — and set beside what the profile puts there: ricepilot's link, all
+three facts holding, to `<root>/<src>`, with a directory at `<src>`. That is
+`same`; anything else is `DIFFERS`, and the row says what is there instead:
+another profile's link; a link ricepilot did not make, *even one pointing
+exactly at the profile's source* — the by-reference caelestia clone before
+`init` looks like that, and ownership is part of the topology because a
+switch refuses such a link; a link whose ledger row names another target or
+inode; ricepilot's own link into a root no registered profile has any more
+(fact 2); a real directory; a file; nothing. A source that is missing or is
+not a directory makes its row differ even with the right link in place,
+since that link dangles (D42). Every link the ledger owns that the profile
+does not link — does not declare, or declares as something never linked —
+is a row too: switching to the profile would retire it (D36); a ledger row with nothing at its destination is no difference (a
+switch would leave nothing there as well) and is `doctor`'s to report.
+`generated` and `volatile` classifications, and a `dir-link` with
+`activation = "never"`, are listed as never linked and not compared.
+
+A real directory where the link should be — what caelestia's installer
+leaves — is also compared path by path with the profile's source for that
+destination, through the same walk and `verify::compare`, with `volatile`
+anchored where the source sits in the profile (`verify::build_within_via`),
+so the directory's `fish_variables` is left out exactly as the profile's
+is. `doctor` prints `diff -r` for a user to run; this is that, read-only,
+with the same exclusions as everything else.
+
+**The content.** The profile's tree from its root — for a by-reference
+profile, the external directory it names — against
+`state/manifests/<name>.toml`. That comparison is
+`verify::against_record_via`, and `switch`'s drift report (D59) now calls
+the same function, so the two cannot disagree about what drifted or why a
+tree was not compared. Nothing recorded, a record that does not parse or
+cannot be read, and a tree that cannot be walked are each reported as NOT
+compared, with the reason. A path rewritten with identical content is
+counted and is not drift (D34).
+
+`volatile` paths are shown apart and never as drift: the walk now returns
+the paths the globs kept it out of (the top of each excluded subtree), and
+`diff` lists them under their own heading. They are excluded from the
+record as well, so there is no baseline to compare them with — by
+declaration an application rewrites them (D59) — and the one true statement
+is that they are there and were not compared. When the record was taken
+with other `volatile` globs, or of another root, than the manifest now
+declares, a line says so beside the comparison, since a path in one list
+and not the other shows up as added or gone.
+
+What `diff` is not: not a plan (no ops, no refusals of a switch — the
+verdict points at `ricepilot plan <profile>` when a link differs, rather
+than restating the five-shape table); not `doctor` (no hazards, no
+commands); and it never follows a foreign link to compare what is behind
+it.
+
+**Read-only by construction**, as `doctor` is (D57). `diff::compare` takes
+a `&dyn Look`, and what it needed from other modules was re-pointed at a
+`Look` rather than copied: `cli::paths::load_via` / `load_all_via`,
+`ledger::load_via`, `verify::load_via`, `switch::source_facts_via`,
+`observe::shape_via`, `verify::build_within_via`,
+`verify::against_record_via`. The old entry points call them with `Live`
+and behave as before: no `switch`, `--strict` or `doctor` snapshot moved.
+`diff` takes no lock (a
+test runs it with the lock held) and starts no process, not even the two
+read-only ones `Look` offers. `tests/diff.rs` checks the source text the way
+`tests/doctor.rs` does — every `crate::` path in `src/diff.rs` and
+`src/diff/` on a list of pure items or `*_via` readers, no grouped import,
+and no word naming a write, a lock, a process or a read around `Look`
+(`pacman`, `sh_syntax`, `hyprverify` and `observe_one` included), prose
+too — and a planted violation shows the check bites. Every `diff` run in
+the suite, refusals included, takes the whole fixture's
+`(dev, ino, mtime_ns)` before and after and fails on any difference; that
+helper and the source scanner moved into `tests/common` so `doctor`'s
+tests and these share one copy.
+
+**Exit status: 6 when something differs, like `verify`.** `Drift` (6) when
+a link or a path differs. It is `verify`'s code because it is `verify`'s
+answer — "what you asked about is not what it should be" — and `diff`
+contains `verify`'s check; a script can act on it without parsing the
+report, and it is not an error, for D34's reason: the command did its job.
+A separate code for "only the links differ" was rejected: the report says
+which, and one code meaning "differs" is easier to use correctly than two.
+
+**4 when it could not look.** `Failed` (4) when the content could not be
+compared because something could not be read — a record that does not
+parse, a tree that cannot be walked. The report is still printed on stdout
+with the links, but 0 would claim a match that was not seen and 6 a drift
+that was not seen; 4 takes precedence over 6 for that reason.
+
+**0 otherwise — including when nothing has been recorded yet.** Drift is
+defined against a record (D34); with none there is nothing to drift from.
+The report says the content was NOT compared and the last line says the
+answer is about the links alone. This is the state right after `init`,
+which records the ledger and no tree manifest, and a status that could
+never be 0 there would be one nobody reads. A script that needs the content
+guarantee runs `verify`, which refuses (2) when nothing is recorded. A real
+directory whose comparison with its source could not be read does not
+change the status: its row already differs.
+
+**Refusals are `plan`'s**, in the same words, because they come from the
+same loaders: a profile that is not registered or is not a name, a manifest
+that is not valid — the profile's own, or another registered profile's,
+since every registered root is fact 2 of the predicate for every link — a
+ledger that does not parse (fact 3), and a destination that cannot be
+classified (a symlinked intermediate component, D9). A manifest that does
+not parse used to be reported as profile `<unparsed>`, because
+`manifest::parse` sees text rather than a file; `paths::load_via` now names
+the profile and the file, which matters most when the refusal is caused by
+a profile other than the one asked about.
+
+`status`, which still said drift reporting was "not implemented yet", now
+names `diff` and `verify`.
+
+What is not covered, recorded rather than implied: with no lock, a `diff`
+beside a running switch can see half of it — the in-flight journal is noted
+first when there is one, but a switch that starts after that line is not
+seen; the rows are read one at a time, not as one snapshot; the content is
+the whole profile tree, as `verify`'s is, not only the `src` directories
+linked; the walk hashes every file, so a large by-reference tree costs what
+`verify` costs; and a real directory's comparison hashes both sides.

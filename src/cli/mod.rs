@@ -105,7 +105,8 @@ pub enum Command {
     Rescue,
     /// Check a profile against its blake3 manifest.
     Verify { profile: String },
-    /// Diff a profile against the live filesystem.
+    /// Compare a profile with the live filesystem: its links, and its tree
+    /// against what was recorded. Read-only; exits 6 when anything differs.
     Diff { profile: String },
     /// Itemise attic directories and remove one after typed confirmation.
     Gc {
@@ -180,6 +181,7 @@ pub fn run(command: Command) -> Result<Output> {
             init::run(&paths, root.as_deref(), name.as_deref(), commit)
         }
         Command::Doctor => Ok(crate::doctor::run(&paths, doctor_system_root())),
+        Command::Diff { profile } => crate::diff::run(&paths, &profile),
 
         // Mutating commands and the remaining read-only ones arrive in later
         // milestones. Saying so and exiting non-zero is the honest answer;
@@ -190,7 +192,7 @@ pub fn run(command: Command) -> Result<Output> {
                 "`{}` is not implemented yet; M1 ships the read-only commands \
                  plan, status, list and show, M2 adds recover, M3 adds switch, \
                  rollback, verify and rescue, M4 adds capture, adopt and init, and M5 \
-                 adds doctor. `diff` and `gc` are still to come in M5",
+                 adds doctor and diff. `gc` is still to come in M5",
                 subcommand_name(&other)
             ),
         }),

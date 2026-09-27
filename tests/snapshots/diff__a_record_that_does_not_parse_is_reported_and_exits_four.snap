@@ -1,0 +1,17 @@
+---
+source: tests/diff.rs
+expression: r.stdout
+---
+diff: profile `new` against the live filesystem
+root: <HOME>/rice/new (by reference — ricepilot never writes here)
+
+links: all 3 destinations are as this profile has them
+  same     <HOME>/.config/hypr -> <HOME>/rice/new/hypr
+  same     <HOME>/.config/foot -> <HOME>/rice/new/foot
+  same     <HOME>/.config/btop -> <HOME>/rice/new/btop
+
+content: NOT compared — the recorded manifest does not parse: invalid type: integer `3`, expected a sequence.
+  (<HOME>/.local/state/ricepilot/manifests/new.toml)
+
+incomplete: no link differs, and the content could not be compared (above).
+nothing was changed.

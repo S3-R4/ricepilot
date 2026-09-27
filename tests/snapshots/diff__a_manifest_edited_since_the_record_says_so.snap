@@ -1,0 +1,33 @@
+---
+source: tests/diff.rs
+expression: r.stdout
+---
+diff: profile `new` against the live filesystem
+root: <HOME>/rice/new-moved (by reference — ricepilot never writes here)
+
+links: 3 of 3 differ
+  DIFFERS  <HOME>/.config/hypr
+             live:    ricepilot's link to <HOME>/rice/new/hypr (it dangles), which no registered profile's root contains any more
+             profile: a link to <HOME>/rice/new-moved/hypr
+  DIFFERS  <HOME>/.config/foot
+             live:    ricepilot's link to <HOME>/rice/new/foot (it dangles), which no registered profile's root contains any more
+             profile: a link to <HOME>/rice/new-moved/foot
+  DIFFERS  <HOME>/.config/btop
+             live:    ricepilot's link to <HOME>/rice/new/btop (it dangles), which no registered profile's root contains any more
+             profile: a link to <HOME>/rice/new-moved/btop
+
+content: 2 paths have changed since ricepilot recorded the tree at <TS>:
+  (<HOME>/.local/state/ricepilot/manifests/new.toml, 6 paths)
+  gone         btop (was a directory)
+  gone         btop/marker (was a file)
+  the record was taken of <HOME>/rice/new; the profile's root is now <HOME>/rice/new-moved.
+  the record left out `**/*.log`; the profile now declares `**/*.log`, `btop` volatile, so a path in one list and not the other shows as added or gone.
+
+volatile: 3 paths not compared, because the manifest declares `**/*.log`, `btop` volatile:
+  btop
+  foot/noise.log
+  hypr/noise.log
+
+differs: 3 links and 2 paths.
+`ricepilot plan new` shows what a switch would do about the links.
+nothing was changed.

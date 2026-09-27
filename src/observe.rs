@@ -3,7 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::ops::read::{self, Kind};
+use crate::ops::look::{Kind, Live, Look, Meta};
+use crate::ops::read;
 use crate::{Error, Result};
 
 /// The five shapes a destination path can have. This enumeration is total:
@@ -107,33 +108,10 @@ pub fn observe_one(dest: &Path, own: &Ownership) -> Result<Observed> {
     let (parent_dev, parent_fs_type) = read::dev_and_fs_type(parent)?;
 
     let meta = read::lstat(dest)?;
-    let (shape, is_mountpoint) = match meta {
-        None => (Shape::Absent, false),
-        Some(m) => match m.kind {
-            // Fact 1 of the ownership predicate: it is a symlink.
-            Kind::Symlink => {
-                let target = read::readlink(dest)?;
-                let shape = if own.owns(dest, &target, m.dev, m.ino) {
-                    Shape::OwnedLink { target }
-                } else {
-                    Shape::ForeignLink {
-                        dangling: !read::resolves(dest)?,
-                        target,
-                    }
-                };
-                (shape, false)
-            }
-            // A directory whose `st_dev` differs from its parent's is a
-            // mount point: renaming it would cross a filesystem boundary.
-            Kind::Dir => (Shape::RealDir, m.dev != parent_dev),
-            // Anything that is neither a directory nor a symlink is a
-            // non-directory the switch will decline to touch. Sockets and
-            // FIFOs land here with regular files; the outcome is the same
-            // refusal, and inventing a sixth shape for them would add a row
-            // to the decision table that says exactly what row four says.
-            Kind::File | Kind::Other => (Shape::RealFile, false),
-        },
-    };
+    let shape = shape_via(&Live, dest, meta, own)?;
+    // A directory whose `st_dev` differs from its parent's is a mount point:
+    // renaming it would cross a filesystem boundary.
+    let is_mountpoint = matches!((&shape, meta), (Shape::RealDir, Some(m)) if m.dev != parent_dev);
 
     Ok(Observed {
         dest: dest.to_path_buf(),
@@ -141,6 +119,45 @@ pub fn observe_one(dest: &Path, own: &Ownership) -> Result<Observed> {
         parent_dev,
         parent_fs_type,
         is_mountpoint,
+    })
+}
+
+/// Which of the five shapes `dest` is, given what an `lstat` of it found
+/// (`meta`), reading anything more through `look`.
+///
+/// The classification half of [`observe_one`], and the only one: `diff`,
+/// read-only by construction (D60), classifies through this with a `Look`
+/// it is handed, so the ownership predicate it reports is the one a switch
+/// acts on.
+pub fn shape_via(
+    look: &dyn Look,
+    dest: &Path,
+    meta: Option<Meta>,
+    own: &Ownership,
+) -> Result<Shape> {
+    let Some(m) = meta else {
+        return Ok(Shape::Absent);
+    };
+    Ok(match m.kind {
+        // Fact 1 of the ownership predicate: it is a symlink.
+        Kind::Symlink => {
+            let target = look.readlink(dest)?;
+            if own.owns(dest, &target, m.dev, m.ino) {
+                Shape::OwnedLink { target }
+            } else {
+                Shape::ForeignLink {
+                    dangling: !look.resolves(dest)?,
+                    target,
+                }
+            }
+        }
+        Kind::Dir => Shape::RealDir,
+        // Anything that is neither a directory nor a symlink is a
+        // non-directory the switch will decline to touch. Sockets and FIFOs
+        // land here with regular files; the outcome is the same refusal, and
+        // inventing a sixth shape for them would add a row to the decision
+        // table that says exactly what row four says.
+        Kind::File | Kind::Other => Shape::RealFile,
     })
 }
 

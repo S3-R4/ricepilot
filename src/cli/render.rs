@@ -232,8 +232,8 @@ pub fn show(name: &str, m: &Manifest, root: &Path, home: &Path) -> String {
 }
 
 /// `ricepilot status`. Reports what it observed, not what a manifest claims
-/// (`SAFETY.md` R7), and says plainly which parts are not built yet rather
-/// than printing a reassuring blank.
+/// (`SAFETY.md` R7), and names the commands that compare rather than printing
+/// a reassuring blank where a comparison would go.
 pub fn status(
     paths: &Paths,
     profiles: &[Profile],
@@ -283,12 +283,12 @@ pub fn status(
     let _ = writeln!(s);
     let _ = writeln!(
         s,
-        "drift reporting at switch time is not implemented yet (milestone M5); \
-         `ricepilot verify <profile>`"
+        "`ricepilot diff <profile>` compares a profile's links and tree with the live \
+         filesystem and with"
     );
     let _ = writeln!(
         s,
-        "compares a profile against the manifest its switch recorded."
+        "what ricepilot recorded; `ricepilot verify <profile>` checks the tree alone."
     );
     s
 }

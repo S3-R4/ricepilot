@@ -103,6 +103,7 @@ declared `generated` and left alone.
 | `verify.rs` | blake3 manifest | via `ops::read` |
 | `rescue.rs` | regenerate `rescue.sh` | via `ops::mutate` |
 | `doctor.rs` | read-only health report | only through a `&dyn Look` (D57) |
+| `diff.rs` | a profile against the live links and its recorded tree | only through a `&dyn Look` (D60) |
 | `gc/` | **the only delete primitive in the crate** | yes |
 | `cli/` | clap surface, wording, confirmations | no |
 
@@ -287,6 +288,25 @@ files, hash of the target *string* for symlinks (never followed), plus mode,
 uid, gid, `mtime_ns` and type, with `volatile` globs excluded. It exits `6`
 when the profile has changed, so a script can act on the answer without
 parsing the report (see [DECISIONS.md](DECISIONS.md) D34).
+
+`diff <profile>` compares a profile with the live filesystem, and for a
+`dir-link` profile that is two things ([DECISIONS.md](DECISIONS.md) D60).
+The **links**: each destination the manifest declares, classified by the
+ownership predicate a switch acts on, beside what the profile puts there —
+ricepilot's link to `<root>/<src>`, with a directory at `<src>`. Another
+profile's link, a link ricepilot did not make (even one to the same place,
+which is a by-reference rice before `init`), a real directory, a file,
+nothing, and a link ricepilot owns that the profile does not link, each
+differ; a real directory is also compared path by path with the profile's
+source, since that is what an installer leaves. The **content**: the
+profile's tree — for a by-reference profile, the external directory it
+names — against its recorded manifest, the comparison a switch reports
+(D59), with the paths `volatile` left out listed apart and never counted as
+drift. It is read-only by construction, as `doctor` is: it reads only
+through `ops::look::Look`, takes no lock and starts no process. It exits `6`
+when a link or a path differs, `4` when the content could not be compared
+because something could not be read, and `0` otherwise — which, when nothing
+has been recorded yet, it says is about the links alone.
 
 Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
 `adopt`, `switch` (`--relogin`, `--strict`), `rollback` (`--relogin`),

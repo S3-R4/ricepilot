@@ -13,6 +13,7 @@
 pub mod error;
 
 pub mod cli;
+pub mod diff;
 pub mod doctor;
 pub mod gc;
 pub mod generations;

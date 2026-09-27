@@ -1,0 +1,35 @@
+---
+source: tests/diff.rs
+expression: r.stdout
+---
+diff: profile `caelestia` against the live filesystem
+root: <HOME>/rice/caelestia (by reference — ricepilot never writes here)
+
+links: 5 of 5 differ
+  DIFFERS  <HOME>/.config/hypr
+             live:    a link to <HOME>/rice/caelestia/hypr, which ricepilot did not make
+             profile: a link to <HOME>/rice/caelestia/hypr
+  DIFFERS  <HOME>/.config/fish
+             live:    a link to <HOME>/rice/caelestia/nowhere (it dangles), which ricepilot did not make
+             profile: a link to <HOME>/rice/caelestia/fish
+  DIFFERS  <HOME>/.config/foot
+             live:    a file, not a link
+             profile: a link to <HOME>/rice/caelestia/foot
+  DIFFERS  <HOME>/.config/btop
+             live:    nothing
+             profile: a link to <HOME>/rice/caelestia/btop
+             source:  missing — nothing is there, so a link to it dangles
+  DIFFERS  <HOME>/.config/kitty
+             live:    nothing
+             profile: a link to <HOME>/rice/caelestia/kitty
+             source:  not a directory — ricepilot links directories, and does not follow a link to one
+  never    <HOME>/.config/fuzzel
+             declared kind = "generated", activation = "never": ricepilot never links it, and it is not compared
+
+content: NOT compared — nothing has been recorded for `caelestia` yet.
+  (<HOME>/.local/state/ricepilot/manifests/caelestia.toml)
+  ricepilot records a profile's tree when it captures the profile and each time it switches to it.
+
+differs: 5 links.
+`ricepilot plan caelestia` shows what a switch would do about the links.
+nothing was changed.

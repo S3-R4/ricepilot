@@ -17,6 +17,7 @@ use crate::generations::{self, Generation};
 use crate::journal::{self, Journal};
 use crate::ledger;
 use crate::observe;
+use crate::ops::look::{Live, Look};
 use crate::ops::{lock, mutate, read};
 use crate::plan::{self, Plan, Target};
 use crate::rescue;
@@ -174,12 +175,18 @@ impl Completed {
 /// the destination, and it is the difference between a switch that fails and a
 /// switch that succeeds into a session with no configuration.
 pub fn source_facts(targets: &[Target]) -> Result<Vec<plan::SourceFact>> {
+    source_facts_via(&Live, targets)
+}
+
+/// [`source_facts`], reading through `look` — which is how `diff`, read-only
+/// by construction (D60), learns what it tells the user about each source.
+pub fn source_facts_via(look: &dyn Look, targets: &[Target]) -> Result<Vec<plan::SourceFact>> {
     let mut out = Vec::new();
     for t in targets {
         if out.iter().any(|f: &plan::SourceFact| f.src == t.src) {
             continue;
         }
-        let state = match read::lstat_or_absent(&t.src)? {
+        let state = match look.lstat_or_absent(&t.src)? {
             None => plan::SourceState::Missing,
             Some(m) if m.kind == read::Kind::Dir => plan::SourceState::Dir,
             // A symlink to a directory is deliberately *not* a directory here.
@@ -205,12 +212,14 @@ pub fn source_facts(targets: &[Target]) -> Result<Vec<plan::SourceFact>> {
 /// tree that cannot be read — is a fact to report, not a failure: without
 /// `--strict` the switch goes ahead exactly as it did before this check
 /// existed (and says so when a read failed).
+///
+/// The comparison itself is [`verify::against_record_via`], which `diff`
+/// makes too (D60); this is what a switch makes of its answer.
 pub fn drift(
     state: &std::path::Path,
     profile: &str,
     root: &std::path::Path,
     volatile: &[String],
-    id: &str,
 ) -> plan::Drift {
     let manifest = verify::manifest_path(state, profile);
     let not_compared = |why: String, read_failed: bool| plan::Drift::NotCompared {
@@ -219,40 +228,25 @@ pub fn drift(
         why,
         read_failed,
     };
-    let recorded = match verify::load(&manifest) {
-        Ok(Some(m)) => m,
-        Ok(None) => return not_compared("nothing has been recorded for it yet".into(), false),
-        // `verify::parse` already says what it could not do.
-        Err(Error::Refused { why, .. }) => return not_compared(why, true),
-        Err(e) => {
-            return not_compared(
-                format!("the recorded manifest could not be read: {e}"),
-                true,
-            )
+    match verify::against_record_via(&Live, state, profile, root, volatile) {
+        verify::AgainstRecord::Unrecorded => {
+            not_compared("nothing has been recorded for it yet".into(), false)
         }
-    };
-    let now = match verify::build(profile, root, volatile, id) {
-        Ok(m) => m,
-        Err(Error::Refused { why, path, .. }) => {
-            return not_compared(
-                format!("its tree could not be read: {} {why}", path.display()),
-                true,
-            )
-        }
-        Err(e) => return not_compared(format!("its tree could not be read: {e}"), true),
-    };
-    let diffs = verify::compare(&recorded, &now);
-    plan::Drift::Compared {
-        profile: profile.to_string(),
-        manifest: manifest.clone(),
-        recorded: recorded.created,
-        changed: diffs
-            .iter()
-            .filter(|d| d.is_substantive())
-            .map(|d| d.to_string())
-            .collect(),
-        touched: diffs.iter().filter(|d| !d.is_substantive()).count(),
-        volatile: volatile.to_vec(),
+        verify::AgainstRecord::Unreadable { why } => not_compared(why, true),
+        verify::AgainstRecord::Compared {
+            recorded, diffs, ..
+        } => plan::Drift::Compared {
+            profile: profile.to_string(),
+            manifest: manifest.clone(),
+            recorded: recorded.created,
+            changed: diffs
+                .iter()
+                .filter(|d| d.is_substantive())
+                .map(|d| d.to_string())
+                .collect(),
+            touched: diffs.iter().filter(|d| !d.is_substantive()).count(),
+            volatile: volatile.to_vec(),
+        },
     }
 }
 
@@ -320,7 +314,7 @@ pub fn run_with(
     let drift = req
         .manifest_of
         .as_ref()
-        .map(|(root, volatile)| drift(&paths.state, &req.profile, root, volatile, &id));
+        .map(|(root, volatile)| drift(&paths.state, &req.profile, root, volatile));
     let ctx = plan::PlanContext::new(paths.home.clone(), attic.clone(), attic_dev)
         .with_sources(source_facts(&req.targets)?)
         .missing_requires(crate::requires::missing(&req.requires)?)

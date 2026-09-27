@@ -1,0 +1,31 @@
+---
+source: tests/diff.rs
+expression: s
+---
+--- unknown: diff nosuch
+exit 2
+ricepilot: profile `nosuch`: no such profile. expected a directory at <HOME>/.local/share/ricepilot/profiles/nosuch
+
+--- not_a_name: diff ../new
+exit 2
+ricepilot: profile `../new`: profile name must be a single directory name
+
+--- unparsable_manifest: diff new
+exit 2
+ricepilot: profile `new`: <HOME>/.local/share/ricepilot/profiles/new/profile.toml does not parse: unclosed array, expected `]`
+
+--- another_profile_unparsable: diff new
+exit 2
+ricepilot: profile `old`: <HOME>/.local/share/ricepilot/profiles/old/profile.toml does not parse: unclosed array, expected `]`
+
+--- ledger: diff new
+exit 2
+ricepilot: refusing: the ledger does not parse, so ricepilot cannot tell which live paths it owns: invalid type: integer `3`, expected path string (<HOME>/.local/state/ricepilot/ledger.toml) [R4]
+
+--- config_is_a_link: diff new
+exit 2
+ricepilot: refusing: intermediate path component is a symlink; refusing to traverse it (<HOME>/.config) [R3]
+
+--- file_copy: diff new
+exit 3
+ricepilot: not possible: `~/.config/hypr` declares kind = file-copy; v1 activates dir-link only (v1.1) [see docs/NOT-POSSIBLE.md#file-activation]

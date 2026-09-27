@@ -1,0 +1,24 @@
+---
+source: tests/diff.rs
+expression: r.stdout
+---
+diff: profile `new` against the live filesystem
+root: <HOME>/rice/new (by reference — ricepilot never writes here)
+
+links: all 3 destinations are as this profile has them
+  same     <HOME>/.config/hypr -> <HOME>/rice/new/hypr
+  same     <HOME>/.config/foot -> <HOME>/rice/new/foot
+  same     <HOME>/.config/btop -> <HOME>/rice/new/btop
+
+content: the tree is what ricepilot recorded at <TS>.
+  (<HOME>/.local/state/ricepilot/manifests/new.toml, 6 paths)
+  1 further path was rewritten with identical content; that is not drift.
+
+volatile: 4 paths not compared, because the manifest declares `**/*.log` volatile:
+  btop/noise.log
+  foot/noise.log
+  hypr/noise.log
+  hypr/session.log
+
+identical: every link is this profile's, and its tree is what ricepilot recorded.
+nothing was changed.

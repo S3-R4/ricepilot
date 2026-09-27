@@ -2,4 +2,4 @@
 source: tests/cli.rs
 expression: r.stderr
 ---
-ricepilot: not possible: `diff` is not implemented yet; M1 ships the read-only commands plan, status, list and show, M2 adds recover, M3 adds switch, rollback, verify and rescue, M4 adds capture, adopt and init, and M5 adds doctor. `diff` and `gc` are still to come in M5 [see docs/NOT-POSSIBLE.md#not-yet-implemented]
+ricepilot: not possible: `gc` is not implemented yet; M1 ships the read-only commands plan, status, list and show, M2 adds recover, M3 adds switch, rollback, verify and rescue, M4 adds capture, adopt and init, and M5 adds doctor and diff. `gc` is still to come in M5 [see docs/NOT-POSSIBLE.md#not-yet-implemented]

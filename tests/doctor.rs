@@ -15,12 +15,11 @@
 
 mod common;
 
-use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use common::{redact, switching, Fixture};
+use common::{identities, paths_after, redact, source, switching, Fixture};
 use ricepilot::error::ExitCode;
 use ricepilot::ops::read;
 
@@ -98,24 +97,6 @@ fn run_with(f: &Fixture, args: &[&str], answer: Option<&str>) -> Run {
 
 fn run(f: &Fixture, args: &[&str]) -> Run {
     run_with(f, args, None)
-}
-
-/// `(dev, ino, mtime_ns)` of every path under the fixture's case directory,
-/// the directory itself included — the shape of
-/// `switching::Machine::profile_identities`, over everything.
-fn identities(f: &Fixture) -> BTreeMap<PathBuf, (u64, u64, i64)> {
-    fn collect(p: &Path, out: &mut BTreeMap<PathBuf, (u64, u64, i64)>) {
-        let m = read::lstat(p).unwrap().unwrap();
-        out.insert(p.to_path_buf(), (m.dev, m.ino, m.mtime_ns));
-        if m.kind == read::Kind::Dir {
-            for name in read::list_dir(p).unwrap() {
-                collect(&p.join(name), out);
-            }
-        }
-    }
-    let mut out = BTreeMap::new();
-    collect(f.home.parent().unwrap(), &mut out);
-    out
 }
 
 /// `ricepilot doctor`, asserting it changed nothing anywhere in the fixture.
@@ -590,38 +571,6 @@ fn a_snapper_config_doctor_cannot_read() {
 // ---------------------------------------------------------------------------
 // Read-only by construction
 // ---------------------------------------------------------------------------
-
-fn source(rel: &str) -> String {
-    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(rel)).unwrap()
-}
-
-/// Every `prefix…` path spelled in `text`, as the longest run of path
-/// characters, with a trailing `::` dropped. A brace right after one — a
-/// grouped import — is returned as `…::{`, so it can never pass a list of
-/// single items.
-fn paths_after(text: &str, prefix: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for (i, _) in text.match_indices(prefix) {
-        let before = text[..i].chars().next_back();
-        if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':') {
-            continue;
-        }
-        let rest = &text[i..];
-        let end = rest
-            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == ':'))
-            .unwrap_or(rest.len());
-        let mut p = rest[..end].to_string();
-        if rest[end..].starts_with('{') {
-            p.push('{');
-        } else {
-            while p.ends_with(':') {
-                p.pop();
-            }
-        }
-        out.push(p);
-    }
-    out
-}
 
 fn doctor_sources() -> Vec<(String, String)> {
     let mut files = vec!["src/doctor.rs".to_string()];

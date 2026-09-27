@@ -286,6 +286,61 @@ impl Fixture {
     }
 }
 
+/// `(dev, ino, mtime_ns)` of every path under the fixture's case directory,
+/// the directory itself included — the shape of
+/// `switching::Machine::profile_identities`, over everything. A read-only
+/// command run between two of these must leave them equal: nothing moved,
+/// appeared or went away (D57, D60).
+pub fn identities(f: &Fixture) -> std::collections::BTreeMap<PathBuf, (u64, u64, i64)> {
+    fn collect(p: &Path, out: &mut std::collections::BTreeMap<PathBuf, (u64, u64, i64)>) {
+        let m = ricepilot::ops::read::lstat(p).unwrap().unwrap();
+        out.insert(p.to_path_buf(), (m.dev, m.ino, m.mtime_ns));
+        if m.kind == ricepilot::ops::read::Kind::Dir {
+            for name in ricepilot::ops::read::list_dir(p).unwrap() {
+                collect(&p.join(name), out);
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    collect(f.home.parent().unwrap(), &mut out);
+    out
+}
+
+/// A file of this repository's own source, for the tests that check what a
+/// module may name.
+pub fn source(rel: &str) -> String {
+    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(rel)).unwrap()
+}
+
+/// Every `prefix…` path spelled in `text`, as the longest run of path
+/// characters, with a trailing `::` dropped. A brace right after one — a
+/// grouped import — is returned as `…::{`, so it can never pass a list of
+/// single items. What `doctor` and `diff` may name is checked with this
+/// (D57, D60).
+pub fn paths_after(text: &str, prefix: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for (i, _) in text.match_indices(prefix) {
+        let before = text[..i].chars().next_back();
+        if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':') {
+            continue;
+        }
+        let rest = &text[i..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == ':'))
+            .unwrap_or(rest.len());
+        let mut p = rest[..end].to_string();
+        if rest[end..].starts_with('{') {
+            p.push('{');
+        } else {
+            while p.ends_with(':') {
+                p.pop();
+            }
+        }
+        out.push(p);
+    }
+    out
+}
+
 /// Redact the fixture root out of command output so snapshots are stable
 /// across machines and checkouts.
 pub fn redact(out: &str, fixture: &Fixture) -> String {

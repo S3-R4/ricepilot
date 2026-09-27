@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::observe;
+use crate::ops::look::{Live, Look};
 use crate::ops::{mutate, read};
 use crate::{Error, Result};
 
@@ -154,10 +155,15 @@ impl Ledger {
 /// nothing, so every live path is unowned and every switch onto one is
 /// refused.
 pub fn load(path: &Path) -> Result<Ledger> {
-    if read::lstat_or_absent(path)?.is_none() {
+    load_via(&Live, path)
+}
+
+/// [`load`], reading through `look`.
+pub fn load_via(look: &dyn Look, path: &Path) -> Result<Ledger> {
+    if look.lstat_or_absent(path)?.is_none() {
         return Ok(Ledger::default());
     }
-    let text = read::slurp(path)?;
+    let text = look.slurp(path)?;
     parse(&text, path)
 }
 

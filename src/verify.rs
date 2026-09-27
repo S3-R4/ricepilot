@@ -263,9 +263,9 @@ pub fn build(
     build_via(&Live, profile, root, volatile, created)
 }
 
-/// [`build`], reading through `look`. The one walk: `doctor`, which may only
-/// read (D57), uses this rather than a copy of it, so the tree it compares is
-/// built exactly the way the recorded one was.
+/// [`build`], reading through `look`. The one walk: `doctor` and `diff`, which
+/// may only read (D57, D60), use this rather than a copy of it, so the tree
+/// they compare is built exactly the way the recorded one was.
 pub fn build_via(
     look: &dyn Look,
     profile: &str,
@@ -273,66 +273,110 @@ pub fn build_via(
     volatile: &[String],
     created: impl Into<String>,
 ) -> Result<TreeManifest> {
-    let mut entries = Vec::new();
-    walk(look, root, Path::new(""), volatile, &mut entries)?;
-    entries.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(TreeManifest {
-        profile: profile.to_string(),
-        root: root.to_path_buf(),
-        created: created.into(),
-        volatile: volatile.to_vec(),
-        entries,
-    })
+    build_within_via(look, profile, root, Path::new(""), volatile, created).map(|(m, _)| m)
 }
 
-fn walk(
+/// [`build_via`] for a tree that is `anchor` inside a profile root, and what
+/// `volatile` left out of it.
+///
+/// `volatile` globs are written relative to the profile root, so a directory
+/// walked on its own — `diff` comparing a real directory at a destination
+/// with the profile's `src` for it — must have each path matched as the path
+/// it has in the profile (`foot/noise.log`), while the manifest records it as
+/// the path it has in the tree walked (`noise.log`). The anchor is the empty
+/// path for the profile root itself.
+///
+/// The second value lists every path the walk skipped because a glob matched
+/// it, relative to `root` and sorted: the top of each excluded subtree, since
+/// the walk does not go into one. `diff` prints them, so a reader can see what
+/// was left out rather than infer it from a short list (D60).
+pub fn build_within_via(
     look: &dyn Look,
+    profile: &str,
     root: &Path,
-    rel: &Path,
+    anchor: &Path,
     volatile: &[String],
-    out: &mut Vec<FileEntry>,
-) -> Result<()> {
-    let here = if rel.as_os_str().is_empty() {
-        root.to_path_buf()
-    } else {
-        root.join(rel)
+    created: impl Into<String>,
+) -> Result<(TreeManifest, Vec<String>)> {
+    let mut entries = Vec::new();
+    let mut excluded = Vec::new();
+    let at = Walk {
+        look,
+        root,
+        anchor,
+        volatile,
     };
-    for name in look.list_dir(&here)? {
-        let child_rel = rel.join(&name);
-        let rel_str = child_rel.to_string_lossy().into_owned();
-        if is_volatile(volatile, &rel_str) {
-            continue;
-        }
-        let path = root.join(&child_rel);
-        let meta = match look.lstat(&path)? {
-            Some(m) => m,
-            // Something went away between the listing and the stat. Recording
-            // nothing for it is the honest answer: it is not there now.
-            None => continue,
+    at.walk(Path::new(""), &mut entries, &mut excluded)?;
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    excluded.sort();
+    Ok((
+        TreeManifest {
+            profile: profile.to_string(),
+            root: root.to_path_buf(),
+            created: created.into(),
+            volatile: volatile.to_vec(),
+            entries,
+        },
+        excluded,
+    ))
+}
+
+/// What one walk needs at every level.
+struct Walk<'a> {
+    look: &'a dyn Look,
+    root: &'a Path,
+    anchor: &'a Path,
+    volatile: &'a [String],
+}
+
+impl Walk<'_> {
+    fn walk(&self, rel: &Path, out: &mut Vec<FileEntry>, excluded: &mut Vec<String>) -> Result<()> {
+        let (look, root, volatile) = (self.look, self.root, self.volatile);
+        let here = if rel.as_os_str().is_empty() {
+            root.to_path_buf()
+        } else {
+            root.join(rel)
         };
-        let (kind, hash) = match meta.kind {
-            read::Kind::File => (EntryKind::File, Some(hash_file(look, &path)?)),
-            read::Kind::Symlink => (EntryKind::Symlink, Some(hash_link(look, &path)?)),
-            read::Kind::Dir => (EntryKind::Dir, None),
-            // A socket or a fifo in a config tree is recorded as present with
-            // no hash rather than skipped: "there is something here I cannot
-            // hash" is a fact worth keeping.
-            read::Kind::Other => (EntryKind::File, None),
-        };
-        out.push(FileEntry {
-            path: rel_str,
-            kind,
-            hash,
-            mode: meta.mode,
-            uid: meta.uid,
-            gid: meta.gid,
-            mtime_ns: meta.mtime_ns,
-        });
-        if meta.kind == read::Kind::Dir {
-            walk(look, root, &child_rel, volatile, out)?;
+        for name in look.list_dir(&here)? {
+            let child_rel = rel.join(&name);
+            let rel_str = child_rel.to_string_lossy().into_owned();
+            let in_profile = self.anchor.join(&child_rel);
+            if is_volatile(volatile, &in_profile.to_string_lossy()) {
+                excluded.push(rel_str);
+                continue;
+            }
+            let path = root.join(&child_rel);
+            let meta = match look.lstat(&path)? {
+                Some(m) => m,
+                // Something went away between the listing and the stat.
+                // Recording nothing for it is the honest answer: it is not
+                // there now.
+                None => continue,
+            };
+            let (kind, hash) = match meta.kind {
+                read::Kind::File => (EntryKind::File, Some(hash_file(look, &path)?)),
+                read::Kind::Symlink => (EntryKind::Symlink, Some(hash_link(look, &path)?)),
+                read::Kind::Dir => (EntryKind::Dir, None),
+                // A socket or a fifo in a config tree is recorded as present
+                // with no hash rather than skipped: "there is something here I
+                // cannot hash" is a fact worth keeping.
+                read::Kind::Other => (EntryKind::File, None),
+            };
+            out.push(FileEntry {
+                path: rel_str,
+                kind,
+                hash,
+                mode: meta.mode,
+                uid: meta.uid,
+                gid: meta.gid,
+                mtime_ns: meta.mtime_ns,
+            });
+            if meta.kind == read::Kind::Dir {
+                self.walk(&child_rel, out, excluded)?;
+            }
         }
+        Ok(())
     }
-    Ok(())
 }
 
 /// Compare a recorded manifest against one taken now. Pure.
@@ -425,11 +469,91 @@ pub fn save(path: &Path, m: &TreeManifest) -> Result<()> {
 /// rather than a comparison against an empty manifest that would report the
 /// whole tree as added.
 pub fn load(path: &Path) -> Result<Option<TreeManifest>> {
-    if read::lstat_or_absent(path)?.is_none() {
+    load_via(&Live, path)
+}
+
+/// [`load`], reading through `look`.
+pub fn load_via(look: &dyn Look, path: &Path) -> Result<Option<TreeManifest>> {
+    if look.lstat_or_absent(path)?.is_none() {
         return Ok(None);
     }
-    let text = read::slurp(path)?;
+    let text = look.slurp(path)?;
     parse(&text, path).map(Some)
+}
+
+/// A profile's tree against the manifest ricepilot recorded for it, or why
+/// the two could not be compared.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgainstRecord {
+    /// Nothing has been recorded for the profile yet — every profile until
+    /// ricepilot captures it or switches to it.
+    Unrecorded,
+    /// The recorded manifest, or the tree, could not be read. `why` says
+    /// which, and what went wrong.
+    Unreadable { why: String },
+    /// Compared: [`compare`]'s answer, against `recorded`, and what the
+    /// profile's `volatile` globs left out of the walk.
+    Compared {
+        recorded: TreeManifest,
+        diffs: Vec<Difference>,
+        excluded: Vec<String>,
+    },
+}
+
+/// The tree at `root` against `state/manifests/<profile>.toml`, `volatile`
+/// excluded: the comparison a `switch` reports before it links a profile
+/// (D59) and `diff` reports on demand (D60), made once, here, reading only
+/// through `look`.
+///
+/// Nothing that goes wrong is an `Err`: a record that is missing, does not
+/// parse or cannot be read, and a tree that cannot be walked, are each an
+/// answer — the caller decides whether that answer refuses anything.
+pub fn against_record_via(
+    look: &dyn Look,
+    state: &Path,
+    profile: &str,
+    root: &Path,
+    volatile: &[String],
+) -> AgainstRecord {
+    let manifest = manifest_path(state, profile);
+    let recorded = match load_via(look, &manifest) {
+        Ok(Some(m)) => m,
+        Ok(None) => return AgainstRecord::Unrecorded,
+        // `parse` already says what it could not do.
+        Err(Error::Refused { why, .. }) => return AgainstRecord::Unreadable { why },
+        Err(e) => {
+            return AgainstRecord::Unreadable {
+                why: format!("the recorded manifest could not be read: {e}"),
+            }
+        }
+    };
+    let walked = build_within_via(
+        look,
+        profile,
+        root,
+        Path::new(""),
+        volatile,
+        recorded.created.clone(),
+    );
+    let (now, excluded) = match walked {
+        Ok(w) => w,
+        Err(Error::Refused { why, path, .. }) => {
+            return AgainstRecord::Unreadable {
+                why: format!("its tree could not be read: {} {why}", path.display()),
+            }
+        }
+        Err(e) => {
+            return AgainstRecord::Unreadable {
+                why: format!("its tree could not be read: {e}"),
+            }
+        }
+    };
+    let diffs = compare(&recorded, &now);
+    AgainstRecord::Compared {
+        recorded,
+        diffs,
+        excluded,
+    }
 }
 
 /// The recorded manifest from its text. Pure; `path` only names it in the

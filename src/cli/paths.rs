@@ -8,6 +8,7 @@
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
+use crate::ops::look::{Live, Look};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,6 +202,13 @@ impl Profile {
 
 /// Load one profile by name.
 pub fn load(paths: &Paths, name: &str) -> Result<Profile> {
+    load_via(&Live, paths, name)
+}
+
+/// [`load`], reading through `look` — the loader `diff`, read-only by
+/// construction, uses (D60). One loader, so both refuse the same things in
+/// the same words.
+pub fn load_via(look: &dyn Look, paths: &Paths, name: &str) -> Result<Profile> {
     if name.contains('/') || name == "." || name == ".." {
         return Err(Error::Manifest {
             profile: name.to_string(),
@@ -208,7 +216,7 @@ pub fn load(paths: &Paths, name: &str) -> Result<Profile> {
         });
     }
     let manifest_path = paths.manifest_path(name);
-    if crate::ops::read::lstat(&paths.profile_dir(name))?.is_none() {
+    if look.lstat(&paths.profile_dir(name))?.is_none() {
         return Err(Error::Manifest {
             profile: name.to_string(),
             detail: format!(
@@ -217,14 +225,23 @@ pub fn load(paths: &Paths, name: &str) -> Result<Profile> {
             ),
         });
     }
-    if crate::ops::read::lstat(&manifest_path)?.is_none() {
+    if look.lstat(&manifest_path)?.is_none() {
         return Err(Error::Manifest {
             profile: name.to_string(),
             detail: format!("has no profile.toml at {}", manifest_path.display()),
         });
     }
-    let text = crate::ops::read::slurp(&manifest_path)?;
-    let manifest = crate::manifest::parse(&text)?;
+    let text = look.slurp(&manifest_path)?;
+    // `parse` sees text, not a file, so it cannot say whose manifest failed.
+    // Here that is known, and a refusal caused by a profile other than the
+    // one asked about (every command that loads them all) must say which.
+    let manifest = crate::manifest::parse(&text).map_err(|e| match e {
+        Error::Manifest { profile, detail } if profile == "<unparsed>" => Error::Manifest {
+            profile: name.to_string(),
+            detail: format!("{} does not parse: {detail}", manifest_path.display()),
+        },
+        other => other,
+    })?;
     if manifest.name != name {
         return Err(Error::Manifest {
             profile: name.to_string(),
@@ -245,14 +262,19 @@ pub fn load(paths: &Paths, name: &str) -> Result<Profile> {
 /// readable `profile.toml` is reported as an error rather than skipped: a
 /// half-written profile is worth knowing about.
 pub fn load_all(paths: &Paths) -> Result<Vec<Profile>> {
+    load_all_via(&Live, paths)
+}
+
+/// [`load_all`], reading through `look`.
+pub fn load_all_via(look: &dyn Look, paths: &Paths) -> Result<Vec<Profile>> {
     let dir = paths.profiles_dir();
-    if crate::ops::read::lstat(&dir)?.is_none() {
+    if look.lstat(&dir)?.is_none() {
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for entry in crate::ops::read::list_dir(&dir)? {
+    for entry in look.list_dir(&dir)? {
         let name = entry.to_string_lossy().into_owned();
-        out.push(load(paths, &name)?);
+        out.push(load_via(look, paths, &name)?);
     }
     Ok(out)
 }

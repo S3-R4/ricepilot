@@ -1,0 +1,25 @@
+---
+source: tests/diff.rs
+expression: r.stdout
+---
+diff: profile `new` against the live filesystem
+root: <HOME>/rice/new (by reference — ricepilot never writes here)
+
+links: 3 of 3 differ
+  DIFFERS  <HOME>/.config/hypr
+             live:    ricepilot's link to <HOME>/rice/old/hypr, for profile `old`
+             profile: a link to <HOME>/rice/new/hypr
+  DIFFERS  <HOME>/.config/foot
+             live:    ricepilot's link to <HOME>/rice/old/foot, for profile `old`
+             profile: a link to <HOME>/rice/new/foot
+  DIFFERS  <HOME>/.config/btop
+             live:    nothing
+             profile: a link to <HOME>/rice/new/btop
+
+content: NOT compared — nothing has been recorded for `new` yet.
+  (<HOME>/.local/state/ricepilot/manifests/new.toml)
+  ricepilot records a profile's tree when it captures the profile and each time it switches to it.
+
+differs: 3 links.
+`ricepilot plan new` shows what a switch would do about the links.
+nothing was changed.
