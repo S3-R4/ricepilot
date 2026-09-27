@@ -1,0 +1,25 @@
+---
+source: tests/doctor.rs
+expression: r.stdout
+---
+ricepilot doctor: 1 problem. nothing was changed; the commands are for you to run.
+
+PROBLEM 1 of 1: <HOME>/.local/state/ricepilot/gc
+  holds 1 entry gc began removing and did not finish.
+  rule: D62 (gc removes only inside state/gc, and a crash leaves it there)
+
+  the operator typed each one's name, and gc stopped part way through
+  taking it apart:
+    attic-<TS>  0 B  (2 items left)
+
+  run:
+    # lists what is left; `--commit` asks for its name again before it finishes
+    ricepilot gc
+
+not checked, or worth knowing:
+  - profile `new`: <HOME>/rice/new/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: <HOME>/rice/old/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: no manifest has been recorded for it yet, so its tree was not compared with anything
+  - running theme daemons (/proc) and snapper's configuration (/etc/snapper) were not checked: this is the test sandbox (D56)
+
+ok: no interrupted operation; 3 owned links intact; the ledger and the manifests agree; 2 hypr trees have an entry file; 1 profile tree matches its recorded manifest; rescue.sh restores generation 0000 and parses; attic empty; no verify-config copies

@@ -1,0 +1,47 @@
+---
+source: tests/gc.rs
+expression: r.stdout
+---
+gc: <HOME>/.local/state/ricepilot
+nothing outside that directory is removed, and nothing in it unless its name is typed back.
+
+interrupted removals — <HOME>/.local/state/ricepilot/gc
+  candidate  <HOME>/.local/state/ricepilot/gc/attic-<TS>
+             <N> directories; <N> bytes
+             gc was removing <HOME>/.local/state/ricepilot/attic/<TS> and stopped; what is left is part of what was confirmed then (D62)
+
+the attic — <HOME>/.local/state/ricepilot/attic
+  KEPT       <HOME>/.local/state/ricepilot/attic/<TS>
+             1 file; <N> bytes
+             - is a file, not a directory: every entry ricepilot makes here is a directory, so this one is not ricepilot's to remove
+  KEPT       <HOME>/.local/state/ricepilot/attic/<TS>
+             <N> directories; <N> bytes
+             - <HOME>/.local/state/ricepilot/journal/done-<TS>.toml is not there, and it is the record of what this holds; gc removes only what a record accounts for
+  KEPT       <HOME>/.local/state/ricepilot/attic/<TS>
+             <N> directories, 2 links, 1 file; <N> bytes
+             - holds <HOME>/.local/state/ricepilot/attic/<TS><HOME>/.config/hypr.orig, a file no record says ricepilot put there
+  KEPT       <HOME>/.local/state/ricepilot/attic/<TS>
+             <N> directories, 2 links; <N> bytes
+             - <HOME>/.local/state/ricepilot/attic/<TS><HOME>/.config/btop is a directory gc could not empty (mode 0555, or owned by someone else); gc changes no permissions
+             - the link at ~/.config/btop points into it: <HOME>/.local/state/ricepilot/attic/<TS><HOME>/.config/btop
+             - an interrupted removal of the same name, <HOME>/.local/state/ricepilot/gc/attic-<TS>, is still waiting; finish that first
+             - holds <HOME>/.local/state/ricepilot/attic/<TS><HOME>/.config/btop, a directory where the record says the link displaced from ~/.config/btop went; gc removes displaced links, and nothing else
+  KEPT       <HOME>/.local/state/ricepilot/attic/my-backup
+             <N> directories, 1 file; <N> bytes
+             - is not a name ricepilot gives an entry here (a switch id like <TS>, or rescue-NNNN in the attic), so it is not ricepilot's to remove
+  KEPT       <HOME>/.local/state/ricepilot/attic/rescue-0042
+             <N> directories; <N> bytes
+             - <HOME>/.local/state/ricepilot/generations/0042.toml is not there, and it is the record of what this holds; gc removes only what a record accounts for
+
+verify-config copies — <HOME>/.local/state/ricepilot/verify
+  KEPT       <HOME>/.local/state/ricepilot/verify/<TS>
+             <N> directories, 2 files, 1 socket, fifo or device; <N> bytes
+             - holds <HOME>/.local/state/ricepilot/verify/<TS>/extra.txt, which the verify-config sandbox does not make (it makes root/ and run/)
+
+1 candidate (<N> bytes), 7 kept.
+
+remove <HOME>/.local/state/ricepilot/gc/attic-<TS>? it holds <N> directories; <N> bytes. this cannot be undone.
+type attic-<TS> to remove it, or anything else to keep it: (no answer)
+kept <HOME>/.local/state/ricepilot/gc/attic-<TS>: its name was not typed back, so nothing was removed.
+
+removed 0 of 1 candidate.

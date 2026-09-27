@@ -34,8 +34,11 @@ harness's.
 
 Displaced objects are **renamed into an attic**, never removed. The ability to
 remove anything lives in one small, auditable directory that never runs
-implicitly: `gc` itemises what it would remove and requires the operator to
-type the attic directory's name back.
+implicitly: `gc` itemises what it would remove and why it keeps the rest,
+and requires the operator to type each entry's name back. The one call that
+removes is in one file, `src/gc/remove.rs`, and acts only through directory
+descriptors opened `O_NOFOLLOW`, only on what was listed, never across a
+mount ([DECISIONS.md](DECISIONS.md) D61, D62).
 
 Separately, every filesystem and subprocess call lives in `src/ops/`. This is
 what makes the dry-run promise checkable: `plan.rs` *cannot* perform IO, and
@@ -44,7 +47,11 @@ surface of one directory.
 
 *Enforced by*: `scripts/check-no-delete.sh`, `scripts/check-ops-boundary.sh`
 (both run in CI, both proven to bite by `tests/guards.rs`), and clippy
-`disallowed-methods` in `clippy.toml` for paths a grep would miss.
+`disallowed-methods` in `clippy.toml` for paths a grep would miss. The two
+rules meet in exactly one file: `src/gc/remove.rs` may spell
+`rustix::fs::unlinkat` and its flags and nothing else outside `src/ops/`, and
+holds the only `allow` of the clippy lint that disallows it everywhere else
+([DECISIONS.md](DECISIONS.md) D63).
 
 ## R3 — ricepilot never writes into a profile and never runs an installer
 

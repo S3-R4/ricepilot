@@ -1848,3 +1848,255 @@ seen; the rows are read one at a time, not as one snapshot; the content is
 the whole profile tree, as `verify`'s is, not only the `src` directories
 linked; the walk hashes every file, so a large by-reference tree costs what
 `verify` costs; and a real directory's comparison hashes both sides.
+
+## D61 — `gc`: what may go, what is kept and why, and the name typed back per entry
+
+*M5, the first of the three decisions the M5 brief named.* Since
+M4 the attic can hold the user's real directories — `adopt` *moves* the
+original there (D46, D49) — so removing an attic entry is the one
+irreversible thing ricepilot can do. The policy is written as if every entry
+were somebody's only copy of their configuration, and it errs, everywhere,
+towards keeping.
+
+**Scope: three directories, all inside the state directory.**
+`state/attic/<entry>/`, `state/verify/<entry>/` (the verify-config copies,
+D55) and `state/gc/<entry>/` (a removal that did not finish, D62). Nothing
+else is listed, and nothing is reached through a link: each area is opened
+`O_NOFOLLOW` from `/` (D9), and one that is not a real directory — an attic
+symlinked somewhere else — is a refusal (R3) that removes nothing, which a
+test plants and checks.
+
+**Refused outright, before anything is itemised:** another ricepilot holding
+the lock (gc takes it for the dry run too, as `recover` does, D27); an
+operation in flight (`journal/current.toml` — its attic is `recover`'s
+working space and every other record may be half-written); and a ledger,
+generation or profile manifest that does not parse, because then gc cannot
+tell what refers to what.
+
+**An attic entry is a candidate only when every object in it is accounted
+for.** "Accounted for" means ricepilot's own record says it put that object
+at that place:
+
+* a switch, rollback, adopt or recover attic `<id>` is described by
+  `journal/done-<id>.toml`, and `Journal::displaced` — written in
+  `journal.rs`, beside the recovery arms that choose the same names — lists
+  every place it or a recovery of it can have moved something to: the old
+  link an exchange displaced, a retired link, an abandoned staged link
+  (`.staged`), the directory `adopt` displaced, and `rename_to_attic`'s
+  `<name>.N` beside any of them;
+* a rescue attic `rescue-NNNN` is described by generation `NNNN`: the script
+  that restores it parks each destination the generation records as empty
+  at `rescue::parked_rel(dest)`, one function used by both.
+
+A directory that holds one of those places is the scaffolding the rename
+made; a *link* at a link place is a displaced link, whose target string the
+journal records, so losing it loses nothing the record does not have. Every
+other object — a file, a directory where a link was put (what `rescue.sh`
+leaves when it displaces an installer's real directory), anything at no
+recorded place, anything in an entry with no record, or a record that does
+not parse — keeps the entry, and the report names the path. That includes
+a link at the place `adopt` put a directory: nothing ever sends a link
+there (a staged link has its own `.staged` place), and its target string is
+in no record. So does an entry whose name is not one ricepilot gives (a
+switch id, perhaps with `-N`, or `rescue-NNNN`), an entry that is not a
+directory, and anything the lookups below find.
+
+**A directory `adopt` displaced is kept unless it is provably held
+elsewhere.** The brief allowed refusing or an extra explicit step; there is
+no extra step. It is a candidate only when *both* hold, re-checked at
+removal time:
+
+1. its destination is ricepilot's link now — the full ownership predicate,
+   `observe::shape_via`. In the adopt-then-rollback state (D49) the
+   destination is empty and this directory is the documented way back; the
+   entry is kept and the report prints `mv -T <attic path> <dest>`, the way
+   `doctor` does;
+2. the copy the adopt made (`Adopt.new_target`) is a real directory lexically
+   inside a registered profile's directory, and walking both with `verify`'s
+   walk (no `volatile` exclusions — "an app rewrites it" is a reason not to
+   compare drift, not a licence to destroy) finds nothing the attic's
+   directory has that the copy lacks or has differently: content, link
+   target, kind, mode, owner. Paths only the copy has do not matter; a path
+   rewritten with identical content (`Touched`) is not a difference.
+
+In practice a live profile copy drifts (fish rewrites `fish_variables`), so
+an adopted directory is usually *kept*. That is the intended answer: the
+attic then holds the only copy of what the user had, and ricepilot will not
+be what destroys it. Someone who wants the space moves the directory out
+of the attic by hand — it is theirs, and so is that decision — and the
+scaffolding left behind is then a candidate.
+
+**Nothing ricepilot records may point into it.** Every generation's link
+targets, every ledger row's target, every registered profile's root, and the
+link actually at every destination the ledger, a generation or a manifest
+names (so a user who took D49's way back with `ln -s` into the attic rather
+than `mv` is caught) are resolved lexically — relative to the link's
+directory, `..` taken as written, nothing followed — and an entry any of
+them lies in is kept, with who points there. A destination that cannot be
+read is a `note:` in the report rather than a refusal: gc says what it could
+not check (R7). A link made anywhere else — a hand-made `~/bin/x` into the
+attic — is not found, because gc does not walk the home; the itemisation
+and the typed name are what stand between it and that entry.
+
+**Verify copies** hold only scratch ricepilot or the sandboxed Hyprland made
+(D55), none of it the user's — a copy of a config, stripped — so any kind of
+object may go, sockets included; the entry must still have a ricepilot name,
+hold nothing at its top but `root/` and `run/`, and pass the same mount,
+permission and reference checks. None is kept as "the newest": the name
+typed per entry is how an operator keeps the one they want. Not closed:
+`plan` makes its copy without taking the lock (it takes none, being
+otherwise read-only), so a `gc --commit` at the same moment could be asked
+about a copy a `plan` is still parsing. The operator would have to type a
+name made seconds earlier, and what that costs is the `plan`'s
+verify-config result, not a file of the user's.
+
+**Checks every entry gets:** every object is on the area's filesystem *and*
+mount (`st_dev`, and `statx`'s mount id — a same-device bind mount has the
+same `st_dev`), and one with no mount id reported keeps its entry; every
+directory is owner-writable and owned by the state directory's owner (gc
+changes no permissions, so one it could not empty would stop it half way);
+no deeper than 128 levels; no interrupted removal of the same name waiting
+in `state/gc/`.
+
+**Itemised before anything is asked.** Every entry, candidate and kept
+alike: its path, what it holds (directories, links, files, others) and the
+bytes of everything but directories (a directory's own size is the
+filesystem's business), and every reason — all of them, not the first — in
+words that name the path. Then the totals, and any note. The dry run stops
+there and is the default; `--commit` is required to be asked anything.
+
+**The name, typed back, per entry.** `confirm::typed_back` shows the
+entry's name and reads a line: the exact name — surrounding whitespace
+trimmed, case kept — returns a `confirm::Named`, whose field is private and
+which nothing else constructs; anything else, an empty line, end of input,
+a read error or a closed terminal returns nothing, and the entry is kept.
+`gc::collect` takes a `&Named` and a `&Lock` and checks the name against the
+entry again. One answer covers one entry, the next entry is asked its own
+question, and there is no `--yes` (D47) and no "all". A name rather than a
+`y` because a `y` can be typed without reading the line above it, and
+`20260927T101500Z` cannot. The two widgets are D47's: `inquire::Text` on a
+terminal (untested, one call), a line read on a pipe (tested), with what was
+read echoed so a transcript shows what the command was told.
+`tests/gc.rs` holds the source to this: `Named { … }` is written only in
+`cli/confirm.rs`, `gc::collect(` only in `cli/gc.rs`, and `remove::bury(` /
+`remove::erase(` only in `gc/mod.rs`.
+
+Exit status: 0 when every question was answered — a name not typed is an
+answer — and otherwise the code of the first failure: 2 when the entry had
+changed since it was listed or its removal stopped part way (D62), 4 for an
+IO error before the removal began (the entry is then where it was, or whole
+in `state/gc/`).
+
+## D62 — How gc removes: a rename to `state/gc/`, then a descriptor walk of the listing, and no journal
+
+*M5.* Four properties, and the mechanism that gives each.
+
+**Only what was shown, still what was shown.** `collect` first reads the
+entry again from nothing — records re-loaded, tree re-walked — and requires
+the same verdict and the same listing: every object's relative path, kind,
+`(dev, ino)`, size, mode, owner, mtime and mount id. A file added to the
+entry while the question is on the screen makes it refuse with nothing
+moved; a test does exactly that.
+
+**Never through a symlink.** Every walk — the itemisation's and the
+removal's — goes through `ops::read::DirFd`: each directory is opened
+`O_RDONLY | O_DIRECTORY | O_NOFOLLOW` *from its parent's descriptor*, its
+`fstat` compared with the `lstat` that found it, and each child looked up
+with `fstatat(AT_SYMLINK_NOFOLLOW)` relative to that descriptor. The removal
+is `unlinkat(dirfd, name, …)`: no path is resolved, so a component replaced
+by a link after the walk began cannot redirect it, and `unlinkat` without
+`AT_REMOVEDIR` removes a symlink itself and never its target. A symlink is
+never opened as a directory. A test puts links in an attic entry pointing at
+directories full of files outside it — the real displaced links of a switch,
+plus one planted at a `.1` name pointing at a directory that is nobody's —
+and after removal every path outside the entry has the same
+`(dev, ino, mtime_ns)` as before.
+
+**Never across a mount.** Objects on another `st_dev` or another mount id
+are not descended into and keep the entry (D61), and the removal re-checks
+each object's mount id against its listing line. Not exercised against a
+real mount — making one needs privileges the suite does not have — so the
+comparison is unit-tested on constructed values, which is reported rather
+than implied (R7). `openat2(RESOLVE_NO_XDEV)` would have the kernel refuse
+the crossing too; it was left out because the listing's check is already
+exact and the fallback for kernels without it would be this code anyway.
+
+**The crash state says what it is.** Before any removal the entry is renamed,
+whole, to `state/gc/<area>-<name>/` (`remove::bury`, `ops::mutate::
+rename_within`, both directories fsync'd), and the removal runs only there
+(`remove::erase`, depth first: children, then the directory with
+`AT_REMOVEDIR`, which the kernel refuses for anything not empty). So a crash
+part way leaves a half-emptied directory in `state/gc/`, never a
+half-removed attic entry that `doctor`'s D49 check or a human reading the
+attic would take for an intact one. The next `ricepilot gc` lists it first,
+as an interrupted removal, with its name — `attic-<id>`, not the attic
+entry's — to type again; `doctor` reports it as a problem (exit 7), because
+it is ricepilot's own state half way through something. An interrupted
+removal is not re-judged by D61's content rules — the operator already
+confirmed that entry and some of it is gone, so it could never match its
+journal again — but it gets the name, mount, permission and reference checks
+and is walked and listed afresh.
+
+**No journal.** A journal would record which inodes the operator confirmed so
+that a resumed removal could be restricted to them. The tombstone gives
+nearly that — the only thing gc ever puts in `state/gc/` is an entry an
+operator typed the name of — and a journal would be a second record that
+could disagree with the directory it describes. What is not closed: a
+directory someone put in `state/gc/` by hand, with a name of the right
+shape, is offered as an interrupted removal (it is still itemised, and still
+needs its name typed). A removal that finds anything not on its listing
+stops (the directory holding it will not be empty), leaving a half-removed
+tombstone, and says so; nothing unlisted is ever removed. The window that
+remains is between the per-object re-check and the `unlinkat`: a name
+swapped for another object of the same kind in that instant, inside the
+state directory, under the lock, by someone writing there by hand.
+
+Tested through the binary, since a `Named` can only come from stdin: the
+right name, a wrong one, another entry's, the right one in the wrong case,
+the right one with more on the line, an empty line and end of input; one
+answer per entry; an entry changed while asked about; an adopted directory
+held, not held (copy changed, copy gone, a link in its place), and in the
+D49 state; a verify copy with a fifo in it; an interrupted removal (built
+by hand — a rename and some removals — since the crash harnesses reach
+switch and adopt, not gc) listed and finished only under its own name;
+in-flight, locked, and an attic that is a link.
+
+## D63 — The one exemption: `src/gc/remove.rs` may spell `unlinkat`, and nothing else in the crate may
+
+*M5.* The two structural rules meet in one place: `check-no-delete.sh`
+confines deleting to `src/gc/`, and `check-ops-boundary.sh` confines
+filesystem syscalls to `src/ops/`. The delete syscall has to satisfy both,
+so one of them needed an exemption. The ops boundary got it, as narrowly as
+it can be written:
+
+* **One file, not a directory.** `src/gc/remove.rs` — not `src/gc/`. The
+  rest of `src/gc/` is checked like any module, so whatever else gc does to
+  the filesystem — every open, stat, listing and rename — goes through
+  `ops`.
+* **Two spellings, not a module.** The script blanks `rustix::fs::unlinkat`
+  and `rustix::fs::AtFlags` out of that file and checks what is left against
+  the full pattern, so a `rustix::fs::openat`, a `rustix::fs::unlink`, a
+  `std::fs::remove_dir_all`, a `Command`, a `read_dir` or `use rustix::fs as
+  f` in it still fails. The no-delete check is untouched and still exempts
+  exactly `src/gc/`.
+* **clippy agrees.** `clippy.toml` now also disallows `rustix::fs::unlinkat`,
+  `unlink` and `rmdir` crate-wide (it already disallowed the `std` removal
+  functions), and the only `#[allow(clippy::disallowed_methods)]` in `src/`
+  is on the one function in `remove.rs` that calls `unlinkat` — so a second
+  call site anywhere, in `src/gc/` included, fails the lint even if the
+  greps were fooled. Removing the `allow` was checked to make clippy fail.
+
+`tests/guards.rs` keeps every earlier case and adds: the call accepted by
+both guards in `gc/remove.rs`, and rejected by one or the other in
+`gc/mod.rs`, `gc/render.rs`, `gc/sub/remove.rs`, a `gc/remove.rs.d/`, a
+top-level `remove.rs`, `ops/mutate.rs`, `ops/read.rs`, `cli/gc.rs` and
+`journal.rs`; fifteen other fs or process spellings planted beside it in
+`gc/remove.rs`, each rejected; eight delete primitives rejected in `ops/`,
+`ops/exec/`, `cli/gc.rs`, `doctor.rs` and a `gcx/` that merely starts with
+the letters, and accepted in three places under `gc/`; and, on the real
+tree, that `rustix::fs::unlinkat(` and the `allow` each appear exactly once,
+both in `src/gc/remove.rs`, no other removal call is spelled in `src/`, and
+`clippy.toml` still lists all six removal functions.
+
+The greps stay textual (D3) and so stay blind to aliasing across files; the
+clippy entry is what covers a removal reached through a re-export.

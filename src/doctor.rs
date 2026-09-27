@@ -151,6 +151,7 @@ pub fn diagnose(look: &dyn Look, at: &Where) -> Report {
     requires(look, &profiles, live.as_deref(), &mut r);
     attic(look, p, &mut r);
     verify_copies(look, p, &mut r);
+    interrupted_gc(look, p, &mut r);
     hypr_session(look, p, ledger.as_ref(), &profiles, &mut r);
     caelestia_cli(p, &profiles, &mut r);
     match &at.system {
@@ -1360,8 +1361,8 @@ fn attic(look: &dyn Look, p: &Paths, r: &mut Report) {
     }
     let mut largest = entries.clone();
     largest.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    let mut listed = "everything a switch, rollback or adopt displaced is here, because\n\
-                      ricepilot has no delete. the largest:"
+    let mut listed = "everything a switch, rollback or adopt displaced is here: nothing but\n\
+                      `gc` removes anything, and gc only what you name. the largest:"
         .to_string();
     for (name, bytes, files) in largest.iter().take(5) {
         listed.push_str(&format!(
@@ -1379,17 +1380,20 @@ fn attic(look: &dyn Look, p: &Paths, r: &mut Report) {
             newest.0,
             human(newest.1)
         ),
-        rule: "SAFETY.md R2 (displaced, never deleted)".into(),
+        rule: "SAFETY.md R2 (displaced; only `gc` removes, D61)".into(),
         detail: vec![
             listed,
-            "it can hold your own directories — an adopt moves the original here (D49)\n\
-             — so read what `gc` lists before you answer it."
+            "it can hold your own directories — an adopt moves the original here (D49).\n\
+             gc keeps one unless a profile holds an identical copy and the path is\n\
+             ricepilot's link, and says why it keeps anything; read that before you answer."
                 .into(),
         ],
         run: vec![
             format!("du -sh {}/*", sh(&dir)),
-            "# lists what it would remove, and asks for each name to be typed back".into(),
+            "# lists every entry, and why each could go or is kept; removes nothing".into(),
             "ricepilot gc".into(),
+            "# asks for each candidate's name to be typed back, and removes only those".into(),
+            "ricepilot gc --commit".into(),
         ],
     });
 }
@@ -1433,7 +1437,54 @@ fn verify_copies(look: &dyn Look, p: &Paths, r: &mut Report) {
              leaves one. the oldest is {}, the newest {}. only `gc` reclaims them.",
             oldest.0, newest.0
         )],
-        run: vec![format!("du -sh {}", sh(&dir)), "ricepilot gc".into()],
+        run: vec![
+            format!("du -sh {}", sh(&dir)),
+            "# lists them; `--commit` asks for each one's name before it removes it".into(),
+            "ricepilot gc".into(),
+        ],
+    });
+}
+
+/// A removal `gc` began and did not finish: what is left of an entry it had
+/// already moved to `state/gc/` (D62). A problem rather than a hazard — it is
+/// ricepilot's own state, half way through something, and one command
+/// finishes it — though nothing on the live machine depends on it.
+fn interrupted_gc(look: &dyn Look, p: &Paths, r: &mut Report) {
+    let dir = p.state.join("gc");
+    let entries = match sized_entries(look, &dir) {
+        Ok(e) => e,
+        Err(e) => {
+            r.problems
+                .push(unreadable(&dir, "the directory gc removes from", &e));
+            return;
+        }
+    };
+    if entries.is_empty() {
+        r.healthy.push("no interrupted gc".into());
+        return;
+    }
+    let mut listed = "the operator typed each one's name, and gc stopped part way through\n\
+                      taking it apart:"
+        .to_string();
+    for (name, bytes, files) in &entries {
+        listed.push_str(&format!(
+            "\n  {name}  {}  ({} left)",
+            human(*bytes),
+            plural(*files, "item", "items")
+        ));
+    }
+    r.problems.push(Finding {
+        path: dir.clone(),
+        what: format!(
+            "holds {} gc began removing and did not finish",
+            plural(entries.len(), "entry", "entries")
+        ),
+        rule: "D62 (gc removes only inside state/gc, and a crash leaves it there)".into(),
+        detail: vec![listed],
+        run: vec![
+            "# lists what is left; `--commit` asks for its name again before it finishes".into(),
+            "ricepilot gc".into(),
+        ],
     });
 }
 

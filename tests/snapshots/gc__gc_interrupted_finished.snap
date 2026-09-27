@@ -1,0 +1,19 @@
+---
+source: tests/gc.rs
+expression: r.stdout
+---
+gc: <HOME>/.local/state/ricepilot
+nothing outside that directory is removed, and nothing in it unless its name is typed back.
+
+interrupted removals — <HOME>/.local/state/ricepilot/gc
+  candidate  <HOME>/.local/state/ricepilot/gc/attic-<TS>
+             <N> directories, 1 link; <N> bytes
+             gc was removing <HOME>/.local/state/ricepilot/attic/<TS> and stopped; what is left is part of what was confirmed then (D62)
+
+1 candidate (<N> bytes), 0 kept.
+
+remove <HOME>/.local/state/ricepilot/gc/attic-<TS>? it holds <N> directories, 1 link; <N> bytes. this cannot be undone.
+type attic-<TS> to remove it, or anything else to keep it: attic-<TS>
+removed <HOME>/.local/state/ricepilot/gc/attic-<TS>: <N> directories, 1 link; <N> bytes.
+
+removed 1 of 1 candidate.

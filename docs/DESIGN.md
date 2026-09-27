@@ -8,8 +8,10 @@ relink only; it takes effect at the next login. Live re-application is
 explicitly out of scope for v1 (see [NOT-POSSIBLE.md](NOT-POSSIBLE.md)).
 
 It does not install packages, does not edit config content, does not delete
-anything, and does not write into a profile. Those are not omissions — they
-are the design (see [SAFETY.md](SAFETY.md)).
+anything — except what `gc` removes from its own state directory, one entry
+at a time, each only after its name is typed back — and does not write into
+a profile. Those are not omissions — they are the design (see
+[SAFETY.md](SAFETY.md)).
 
 ## 2. On-disk layout
 
@@ -25,7 +27,10 @@ are the design (see [SAFETY.md](SAFETY.md)).
     generations/current     pointer to the active generation
     journal/                write-ahead log of an in-flight switch
     manifests/<name>.toml   blake3 manifest of a profile, recorded at switch
-    attic/<ts>/             displaced objects, never deleted
+    attic/<ts>/             displaced objects; only `gc` removes one (D61)
+    attic/rescue-NNNN/      what rescue.sh displaced restoring generation NNNN
+    verify/<ts>/            verify-config scratch copies (D55)
+    gc/<area>-<name>/       an entry gc is removing, or was when it stopped (D62)
     baseline/               reflinked copy of the rice, taken at init
     rescue.sh               standalone POSIX sh restore of generation N-1
 
@@ -104,7 +109,7 @@ declared `generated` and left alone.
 | `rescue.rs` | regenerate `rescue.sh` | via `ops::mutate` |
 | `doctor.rs` | read-only health report | only through a `&dyn Look` (D57) |
 | `diff.rs` | a profile against the live links and its recorded tree | only through a `&dyn Look` (D60) |
-| `gc/` | **the only delete primitive in the crate** | yes |
+| `gc/` | **the only delete primitive in the crate**: `gc/remove.rs`'s one `unlinkat`, the one exemption from the ops boundary (D63); everything else through `ops` | via `ops` (reads, the rename into `state/gc/`), and that one `unlinkat` itself |
 | `cli/` | clap surface, wording, confirmations | no |
 
 `plan.rs` being pure is the load-bearing property: the plan printed by
@@ -242,7 +247,9 @@ Each rung works when the one above it does not:
    anything in `$HOME`.
 
 `~/.local/state/ricepilot/attic/` still holds everything that was displaced,
-because nothing is ever deleted.
+because nothing is deleted except by `gc`, and `gc` keeps anything it cannot
+account for — including a directory `adopt` displaced, unless a profile holds
+an identical copy and the destination is ricepilot's link again (D61).
 
 ## 8. Hyprland specifics
 
@@ -312,6 +319,30 @@ Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
 `adopt`, `switch` (`--relogin`, `--strict`), `rollback` (`--relogin`),
 `recover`, `gc`.
 
+* `gc` is the only command that removes anything, and the only irreversible
+  one: since M4 the attic can hold the user's own directories. It lists
+  entries in three places inside the state directory and removes nothing
+  anywhere else — `attic/`, `verify/` and `gc/` — reading ricepilot's
+  records, the links at known destinations and the profile copies only to
+  decide. It itemises every entry before it asks anything:
+  path, contents, size, and why it is a candidate or why it is kept, every
+  reason ([DECISIONS.md](DECISIONS.md) D61). An attic entry is a candidate
+  only when its journal (or, for `rescue-NNNN`, its generation) accounts for
+  every object in it as a link ricepilot displaced, when no generation,
+  ledger row, profile root or link at a known destination points into it,
+  and when any directory `adopt` displaced into it has an identical copy in
+  a registered profile *and* its destination is ricepilot's link — in the
+  adopt-then-rollback state (D49) it is the way back, and is kept. It takes
+  the lock and refuses while an operation is in flight. With `--commit` it
+  asks per candidate for the entry's name to be typed back; only the exact
+  name removes it, and only after the entry is read again and found
+  identical, inode for inode, to what was listed. The entry is then renamed
+  to `gc/<area>-<name>/` and taken apart there, depth first, through
+  directory descriptors opened `O_NOFOLLOW` — a link is removed as a link,
+  never followed — never across a mount, and removing only what was listed
+  (D62). A crash leaves the rest in `gc/`, which the next `gc` lists as an
+  interrupted removal and `doctor` reports.
+
 * `capture <profile> --from <dir>…` copies live directories into a new
   profile and writes its manifest. It activates nothing: no link is created,
   no ledger row is written, no live path changes. Each copy is compared
@@ -364,7 +395,7 @@ Mutating, all dry-run by default and requiring `--commit`: `init`, `capture`,
   left empty, with the directory in the attic (D49); a missing source; a
   `~/.config/hypr` tree with no entry file; profile drift since it was
   recorded; a missing, stale or unparseable `rescue.sh`; the live profile's
-  missing `requires`. Then **hazards** about the machine — `/home`
+  missing `requires`; a removal `gc` began and did not finish (D62). Then **hazards** about the machine — `/home`
   unsnapshotted, `hypr-session` writing into the profile tree, caelestia's
   theme daemons running, caelestia-cli's legacy-migration path, a large
   attic, piled-up verify-config copies. Every finding names its path and

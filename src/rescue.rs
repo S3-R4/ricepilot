@@ -104,6 +104,14 @@ pub fn rescue_attic(state: &Path, id: u32) -> PathBuf {
     state.join("attic").join(format!("rescue-{id:04}"))
 }
 
+/// Where the script parks what is at `dest`, relative to its rescue attic:
+/// the absolute path with the leading `/` stripped, as the switch attic does.
+/// `gc` reads the same function to account for what a rescue attic holds
+/// (D61), so the two cannot disagree about where things land.
+pub fn parked_rel(dest: &Path) -> PathBuf {
+    dest.strip_prefix("/").unwrap_or(dest).to_path_buf()
+}
+
 /// Generate the script that takes the machine back to `to`.
 ///
 /// Pure: it takes values and returns a `String`, so every line of it is
@@ -170,7 +178,7 @@ pub fn script(to: &Generation, bins: &Binaries, attic: &Path) -> String {
                 // The previous generation had nothing here. Removing is not
                 // available (R2), so the link is displaced into the rescue
                 // attic — the same answer `rollback` gives (D36).
-                let parked = attic.join(e.dest.strip_prefix("/").unwrap_or(&e.dest));
+                let parked = attic.join(parked_rel(&e.dest));
                 let parent = parked.parent().unwrap_or(attic).to_path_buf();
                 let _ = writeln!(s, "# {} had nothing here; displace it", e.dest.display());
                 let _ = writeln!(

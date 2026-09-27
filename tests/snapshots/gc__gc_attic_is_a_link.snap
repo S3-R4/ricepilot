@@ -1,0 +1,5 @@
+---
+source: tests/gc.rs
+expression: r.stderr
+---
+ricepilot: refusing: is not a directory. gc looks only inside the real directories ricepilot made, and never follows a link out of the state directory (<HOME>/.local/state/ricepilot/attic) [R3]

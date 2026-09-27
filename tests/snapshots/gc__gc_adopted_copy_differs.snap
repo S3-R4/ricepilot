@@ -1,0 +1,14 @@
+---
+source: tests/gc.rs
+expression: r.stdout
+---
+gc: <HOME>/.local/state/ricepilot
+nothing outside that directory is removed, and nothing in it unless its name is typed back.
+
+the attic — <HOME>/.local/state/ricepilot/attic
+  KEPT       <HOME>/.local/state/ricepilot/attic/<TS>
+             <N> directories, 2 files; <N> bytes
+             - holds <HOME>/.local/state/ricepilot/attic/<TS><HOME>/.config/hypr, the directory adopt moved out of ~/.config/hypr; its copy, <HOME>/.local/share/ricepilot/profiles/mine/hypr, differs from it in 1 path (first: changed monitors.conf), so this holds the only copy of those
+
+no candidates, 1 kept.
+dry run: nothing was removed. `ricepilot gc --commit` asks for each candidate's name, and removes only the ones typed back.

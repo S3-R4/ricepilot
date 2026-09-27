@@ -5,6 +5,12 @@ disallowed-methods = [
     { path = "std::fs::remove_file",     reason = "SAFETY.md R2: displace into the attic, never delete (src/gc/ only)" },
     { path = "std::fs::remove_dir",      reason = "SAFETY.md R2: displace into the attic, never delete (src/gc/ only)" },
     { path = "std::fs::remove_dir_all",  reason = "SAFETY.md R2: displace into the attic, never delete (src/gc/ only)" },
+    # rustix's removal calls, which is what `gc` actually uses. Disallowed
+    # here so the one `allow` in src/gc/remove.rs is the only place any of
+    # them compiles without a lint error (D63).
+    { path = "rustix::fs::unlinkat",     reason = "SAFETY.md R2: the one call site is src/gc/remove.rs (D63)" },
+    { path = "rustix::fs::unlink",       reason = "SAFETY.md R2: the one call site is src/gc/remove.rs (D63)" },
+    { path = "rustix::fs::rmdir",        reason = "SAFETY.md R2: the one call site is src/gc/remove.rs (D63)" },
     { path = "std::fs::canonicalize",    reason = "follows symlinks; use ops::read with O_PATH|O_NOFOLLOW" },
     { path = "std::path::Path::canonicalize", reason = "follows symlinks; use ops::read with O_PATH|O_NOFOLLOW" },
     { path = "std::path::Path::exists",  reason = "follows symlinks and races; use ops::read::lstat" },

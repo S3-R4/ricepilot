@@ -1,0 +1,5 @@
+---
+source: tests/gc.rs
+expression: r.stderr
+---
+ricepilot: refusing: an operation is in flight and did not finish. run `ricepilot recover` first; until then gc will not decide what in the attic is still needed (<HOME>/.local/state/ricepilot/journal/current.toml) [R4]

@@ -1,5 +1,6 @@
-//! Per-path confirmation for `init` and `adopt`, and the logout `--relogin`
-//! offers (`SAFETY.md` R6).
+//! Per-path confirmation for `init` and `adopt`, the logout `--relogin`
+//! offers, and the name `gc` has typed back before it removes anything
+//! (`SAFETY.md` R6).
 //!
 //! These change what gets touched on a real machine, so a human says yes to
 //! each path — or to ending the session — or nothing happens. The interesting question
@@ -75,6 +76,79 @@ fn ask_interactively(what: &str) -> bool {
         .with_default(false)
         .prompt()
         .unwrap_or(false)
+}
+
+/// The operator typed a name back, and it was exactly the name asked for.
+///
+/// Made in one place, [`typed_back`], and nowhere else — the field is
+/// private. `gc` removes nothing without one naming the entry (D61): a `y`
+/// can be typed without reading the line above it, and a name like
+/// `20260927T101500Z` cannot be typed without looking at which entry it is.
+#[derive(Debug)]
+pub struct Named {
+    name: String,
+}
+
+impl Named {
+    /// The name that was typed, which is the name that was asked for.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// The prompt [`typed_back`] shows, identical whichever way it is asked.
+pub fn name_prompt(name: &str) -> String {
+    format!("type {name} to remove it, or anything else to keep it:")
+}
+
+/// Print `what`, ask for `name` to be typed back, and return the proof if it
+/// was — exactly, apart from surrounding whitespace, and case-sensitively.
+///
+/// There is no default that removes: end of input, an empty line, a read
+/// error and any other text all return `None`, and so does a closed
+/// terminal. The same two widgets as [`ask`], for the same reason (D47).
+pub fn typed_back(what: &str, name: &str) -> Option<Named> {
+    let mut out = std::io::stdout();
+    let _ = writeln!(out, "{what}");
+    let _ = out.flush();
+    let typed = if std::io::stdin().is_terminal() {
+        type_interactively(name)
+    } else {
+        type_on_a_pipe(name)
+    };
+    typed.filter(|t| t.trim() == name).map(|_| Named {
+        name: name.to_string(),
+    })
+}
+
+/// The terminal path for [`typed_back`]. Untested for the reason
+/// [`ask_interactively`] is, and as thin: one call.
+fn type_interactively(name: &str) -> Option<String> {
+    inquire::Text::new(&name_prompt(name)).prompt().ok()
+}
+
+/// The non-terminal path for [`typed_back`]: print the prompt, read one line,
+/// echo what was read so a transcript shows what the command was told.
+fn type_on_a_pipe(name: &str) -> Option<String> {
+    let mut out = std::io::stdout();
+    let _ = write!(out, "{} ", name_prompt(name));
+    let _ = out.flush();
+
+    let mut line = String::new();
+    let typed = match std::io::stdin().lock().read_line(&mut line) {
+        Ok(0) | Err(_) => None,
+        Ok(_) => Some(line.trim().to_string()),
+    };
+    let _ = writeln!(
+        out,
+        "{}",
+        match typed.as_deref() {
+            None => "(no answer)",
+            Some("") => "(nothing typed)",
+            Some(t) => t,
+        }
+    );
+    typed
 }
 
 /// The non-terminal path: print the question, read one line.

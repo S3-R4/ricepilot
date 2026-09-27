@@ -360,3 +360,157 @@ pub fn dev_of_nearest_existing_ancestor(path: &Path) -> Result<u64> {
         why: "no existing ancestor directory to take a device number from".into(),
     })
 }
+
+// ---------------------------------------------------------------------------
+// Open directories: a walk the filesystem cannot redirect half way
+// ---------------------------------------------------------------------------
+
+/// A directory held open `O_RDONLY | O_DIRECTORY | O_NOFOLLOW`, reached from
+/// `/` without following a symlink at any component (D9), with every name
+/// below it looked up relative to the descriptor.
+///
+/// What [`lstat`] and [`list_dir`] cannot promise and this can: that the
+/// second step of a walk is taken in the directory the first step found.
+/// Those walk the whole path again from `/` on every call, so a directory
+/// renamed, or replaced by a symlink, between two calls sends the second one
+/// somewhere else. `gc` walks what it is about to take away through these,
+/// so every step is made inside the directory the previous step opened and
+/// checked (D62).
+///
+/// Nothing here changes anything. [`DirFd::as_fd`] hands the descriptor to
+/// the one caller that acts on the names in it, `crate::gc`, and the
+/// ops-boundary check confines what that caller may do with it to one
+/// syscall in one file (D63).
+#[derive(Debug)]
+pub struct DirFd {
+    fd: OwnedFd,
+    path: PathBuf,
+}
+
+/// One entry as a single `fstatat(AT_SYMLINK_NOFOLLOW)` saw it, plus the
+/// mount it is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Found {
+    pub meta: Meta,
+    /// `st_size`. For a symlink, the length of its target string.
+    pub size: u64,
+    /// `statx`'s `stx_mnt_id`, or `None` when the kernel does not report one
+    /// (before Linux 5.8). Two entries with the same `st_dev` can still be on
+    /// different mounts — a bind mount of a directory on the same filesystem
+    /// is one — and this is what tells them apart.
+    pub mount: Option<u64>,
+}
+
+impl DirFd {
+    /// Open `path`, which must be a directory and not a symlink.
+    pub fn open(path: &Path) -> Result<Self> {
+        let (dirfd, name) = parent_dirfd(path)?;
+        Ok(DirFd {
+            fd: open_directory(&dirfd, name.as_os_str(), path)?,
+            path: path.to_path_buf(),
+        })
+    }
+
+    /// Open the directory `name` inside this one. A symlink at `name` is an
+    /// error (`O_NOFOLLOW`), never something followed.
+    pub fn open_child(&self, name: &OsStr) -> Result<Self> {
+        let path = self.path.join(name);
+        Ok(DirFd {
+            fd: open_directory(&self.fd, name, &path)?,
+            path,
+        })
+    }
+
+    /// Where this was opened, for messages. Not used to reach anything.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// This directory itself, from its descriptor.
+    #[allow(clippy::unnecessary_cast)]
+    pub fn found(&self) -> Result<Found> {
+        let st = rustix::fs::fstat(&self.fd)
+            .map_err(|e| io(format!("stat {}", self.path.display()), e))?;
+        let mount = mount_id(&self.fd, OsStr::new(""), AtFlags::EMPTY_PATH, &self.path)?;
+        Ok(Found {
+            meta: meta_of(&st),
+            size: st.st_size as u64,
+            mount,
+        })
+    }
+
+    /// The entry `name` in this directory, without following it if it is a
+    /// symlink and without triggering an automount. `None` if it is gone.
+    #[allow(clippy::unnecessary_cast)]
+    pub fn child(&self, name: &OsStr) -> Result<Option<Found>> {
+        let path = self.path.join(name);
+        let st = match rustix::fs::statat(&self.fd, name, AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(st) => st,
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(e) => return Err(io(format!("lstat {}", path.display()), e)),
+        };
+        let mount = mount_id(
+            &self.fd,
+            name,
+            AtFlags::SYMLINK_NOFOLLOW | AtFlags::NO_AUTOMOUNT,
+            &path,
+        )?;
+        Ok(Some(Found {
+            meta: meta_of(&st),
+            size: st.st_size as u64,
+            mount,
+        }))
+    }
+
+    /// The entry names in this directory, sorted, without `.` and `..`.
+    pub fn names(&self) -> Result<Vec<OsString>> {
+        let dir = Dir::read_from(&self.fd)
+            .map_err(|e| io(format!("reading {}", self.path.display()), e))?;
+        let mut names = Vec::new();
+        for entry in dir {
+            let entry = entry.map_err(|e| io(format!("reading {}", self.path.display()), e))?;
+            let raw = entry.file_name().to_bytes();
+            if raw == b"." || raw == b".." {
+                continue;
+            }
+            names.push(OsStr::from_bytes(raw).to_os_string());
+        }
+        names.sort();
+        Ok(names)
+    }
+
+    /// The descriptor, for the one caller that acts on names relative to it
+    /// (`crate::gc`, D62). Borrowed: it closes when this value is dropped.
+    pub fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        use std::os::fd::AsFd as _;
+        self.fd.as_fd()
+    }
+}
+
+fn open_directory<Fd: rustix::fd::AsFd>(dirfd: Fd, name: &OsStr, path: &Path) -> Result<OwnedFd> {
+    rustix::fs::openat(
+        dirfd,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|e| io(format!("opening {}", path.display()), e))
+}
+
+/// `statx`'s mount id for `name` in `dirfd`, or `None` where the kernel has
+/// no `statx` or does not fill the field in.
+fn mount_id<Fd: rustix::fd::AsFd>(
+    dirfd: Fd,
+    name: &OsStr,
+    flags: AtFlags,
+    path: &Path,
+) -> Result<Option<u64>> {
+    use rustix::fs::StatxFlags;
+    match rustix::fs::statx(dirfd, name, flags, StatxFlags::MNT_ID) {
+        Ok(stx) if StatxFlags::from_bits_retain(stx.stx_mask).contains(StatxFlags::MNT_ID) => {
+            Ok(Some(stx.stx_mnt_id))
+        }
+        Ok(_) | Err(rustix::io::Errno::NOSYS) => Ok(None),
+        Err(e) => Err(io(format!("statx {}", path.display()), e)),
+    }
+}

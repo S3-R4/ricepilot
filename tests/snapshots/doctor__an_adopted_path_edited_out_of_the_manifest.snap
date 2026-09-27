@@ -31,4 +31,4 @@ not checked, or worth knowing:
   - profile `mine`: no manifest has been recorded for it yet, so its tree was not compared with anything
   - running theme daemons (/proc) and snapper's configuration (/etc/snapper) were not checked: this is the test sandbox (D56)
 
-ok: no interrupted operation; 1 owned link intact; rescue.sh restores generation 0000 and parses; attic: 1 entry, 42 B (the newest, <TS>, 42 B); no verify-config copies
+ok: no interrupted operation; 1 owned link intact; rescue.sh restores generation 0000 and parses; attic: 1 entry, 42 B (the newest, <TS>, 42 B); no verify-config copies; no interrupted gc

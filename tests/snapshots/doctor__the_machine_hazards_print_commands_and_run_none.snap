@@ -6,20 +6,23 @@ ricepilot doctor: no problems, 7 hazards. nothing was changed; the commands are 
 
 HAZARD 1 of 7: <HOME>/.local/state/ricepilot/attic
   has grown to 3.0 GiB in 2 entries; the newest, <TS>, holds 0 B.
-  rule: SAFETY.md R2 (displaced, never deleted)
+  rule: SAFETY.md R2 (displaced; only `gc` removes, D61)
 
-  everything a switch, rollback or adopt displaced is here, because
-  ricepilot has no delete. the largest:
+  everything a switch, rollback or adopt displaced is here: nothing but
+  `gc` removes anything, and gc only what you name. the largest:
     <TS>  3.0 GiB  (1 item)
     <TS>  0 B  (2 items)
 
-  it can hold your own directories — an adopt moves the original here (D49)
-  — so read what `gc` lists before you answer it.
+  it can hold your own directories — an adopt moves the original here (D49).
+  gc keeps one unless a profile holds an identical copy and the path is
+  ricepilot's link, and says why it keeps anything; read that before you answer.
 
   run:
     du -sh <HOME>/.local/state/ricepilot/attic/*
-    # lists what it would remove, and asks for each name to be typed back
+    # lists every entry, and why each could go or is kept; removes nothing
     ricepilot gc
+    # asks for each candidate's name to be typed back, and removes only those
+    ricepilot gc --commit
 
 HAZARD 2 of 7: <HOME>/.local/state/ricepilot/verify
   holds 21 scratch copies, 231 B in all.
@@ -30,6 +33,7 @@ HAZARD 2 of 7: <HOME>/.local/state/ricepilot/verify
 
   run:
     du -sh <HOME>/.local/state/ricepilot/verify
+    # lists them; `--commit` asks for each one's name before it removes it
     ricepilot gc
 
 HAZARD 3 of 7: <HOME>/.local/bin/hypr-session
@@ -105,4 +109,4 @@ not checked, or worth knowing:
   - profile `caelestia`: no manifest has been recorded for it yet, so its tree was not compared with anything
   - profile `old`: no manifest has been recorded for it yet, so its tree was not compared with anything
 
-ok: no interrupted operation; 3 owned links intact; the ledger and the manifests agree; 2 hypr trees have an entry file; 1 profile tree matches its recorded manifest; rescue.sh restores generation 0000 and parses
+ok: no interrupted operation; 3 owned links intact; the ledger and the manifests agree; 2 hypr trees have an entry file; 1 profile tree matches its recorded manifest; rescue.sh restores generation 0000 and parses; no interrupted gc

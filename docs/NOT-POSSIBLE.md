@@ -65,8 +65,12 @@ observed and reported but not managed.
 
 **Instead:** displaced objects are renamed into
 `~/.local/state/ricepilot/attic/<ts>/`. `gc` reclaims the space later, after
-itemising exactly what it would remove and requiring the operator to type the
-attic directory's name back.
+itemising exactly what it would remove and requiring the operator to type
+each entry's name back — and it keeps what it cannot account for, including
+a directory `adopt` displaced that no profile holds an identical copy of
+([DECISIONS.md](DECISIONS.md) D61). ricepilot will not be what destroys the
+only copy of a user's configuration; moving it out of the attic by hand is
+the user's call.
 
 This reaches the user most visibly in `rollback`. A switch onto a destination
 that was *absent* creates a link there with a single `symlinkat`, and undoing
@@ -185,7 +189,9 @@ a health check nobody can safely run.
 ## not-yet-implemented
 
 A command that exists in the CLI surface but whose milestone has not landed
-exits `NotPossible` (3) and names the milestone that will bring it.
+exits `NotPossible` (3) and names the milestone that will bring it. Since
+`gc` landed in M5 no command is in that state; the rule is kept here for the
+next command added.
 
 This is deliberately not a silent no-op and not a stub that pretends to
 succeed. `switch --commit` returning 0 without switching anything would be

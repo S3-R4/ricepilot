@@ -1,0 +1,14 @@
+---
+source: tests/gc.rs
+expression: r.stdout
+---
+gc: <HOME>/.local/state/ricepilot
+nothing outside that directory is removed, and nothing in it unless its name is typed back.
+
+interrupted removals — <HOME>/.local/state/ricepilot/gc
+  candidate  <HOME>/.local/state/ricepilot/gc/attic-<TS>
+             <N> directories, 1 link; <N> bytes
+             gc was removing <HOME>/.local/state/ricepilot/attic/<TS> and stopped; what is left is part of what was confirmed then (D62)
+
+1 candidate (<N> bytes), 0 kept.
+dry run: nothing was removed. `ricepilot gc --commit` asks for each candidate's name, and removes only the ones typed back.

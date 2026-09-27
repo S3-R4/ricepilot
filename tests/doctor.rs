@@ -767,3 +767,22 @@ fn the_doctor_guard_bites() {
     assert!(names.iter().all(|n| !DOCTOR_MAY_NAME.contains(&n.as_str())));
     assert!(DOCTOR_MUST_NOT_SPELL.iter().any(|w| planted.contains(w)));
 }
+
+/// A removal `gc` began and did not finish (D62): what is left of the entry
+/// sits in `state/gc/`, and doctor says so first-class, with the command
+/// that lists it and finishes it once its name is typed again.
+#[test]
+fn a_gc_that_did_not_finish_is_a_problem() {
+    let m = machine("gc_interrupted");
+    let attic = m.f.state().join("attic");
+    let name = ricepilot::ops::read::list_dir(&attic).unwrap().remove(0);
+    let gc = m.f.dir(".local/state/ricepilot/gc");
+    std::fs::rename(
+        attic.join(&name),
+        gc.join(format!("attic-{}", name.to_string_lossy())),
+    )
+    .unwrap();
+    let r = doctor(&m.f);
+    unhealthy(&r);
+    insta::assert_snapshot!(r.stdout);
+}

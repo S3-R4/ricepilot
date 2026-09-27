@@ -1,0 +1,8 @@
+---
+source: tests/gc.rs
+expression: tail
+---
+to keep it: <TS>
+NOT removed <HOME>/.local/state/ricepilot/attic/<TS>: refusing: is no longer a candidate (holds <HOME>/.local/state/ricepilot/attic/<TS><HOME>/.config/foot.late, a file no record says ricepilot put there); nothing was removed (<HOME>/.local/state/ricepilot/attic/<TS>) [R4]
+
+removed 0 of 1 candidate. 1 entry could not be removed; see above.

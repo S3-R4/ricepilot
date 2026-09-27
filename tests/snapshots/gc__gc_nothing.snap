@@ -1,0 +1,8 @@
+---
+source: tests/gc.rs
+expression: r.stdout
+---
+gc: <HOME>/.local/state/ricepilot
+nothing outside that directory is removed, and nothing in it unless its name is typed back.
+
+the attic, the verify-config copies and state/gc are empty or absent: there is nothing to remove.

@@ -1,4 +1,6 @@
-//! **The only module in the crate that touches the outside world.**
+//! **The only module in the crate that touches the outside world** — but for
+//! one call: the removal in `crate::gc::remove`, which the ops-boundary check
+//! lets that one file spell and nothing else (D63).
 //!
 //! `scripts/check-ops-boundary.sh` fails CI if a filesystem or subprocess
 //! entry point appears anywhere under `src/` outside this directory. Every

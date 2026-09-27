@@ -2,11 +2,12 @@
 //! requires `--commit` (`SAFETY.md` R4). Every user-visible string is
 //! snapshot-tested.
 //!
-//! Implemented in M1 (read-only commands) and M5 (the rest).
+//! Implemented from M1 (the read-only commands) to M5 (`gc` last).
 
 pub mod adopt;
 pub mod capture;
 pub mod confirm;
+pub mod gc;
 pub mod init;
 pub mod paths;
 pub mod relogin;
@@ -108,7 +109,10 @@ pub enum Command {
     /// Compare a profile with the live filesystem: its links, and its tree
     /// against what was recorded. Read-only; exits 6 when anything differs.
     Diff { profile: String },
-    /// Itemise attic directories and remove one after typed confirmation.
+    /// Itemise the attic and the verify-config copies, saying why each is a
+    /// candidate or is kept. With `--commit`, remove only the candidates
+    /// whose names are typed back — the one thing ricepilot does that cannot
+    /// be undone.
     Gc {
         #[arg(long)]
         commit: bool,
@@ -182,20 +186,7 @@ pub fn run(command: Command) -> Result<Output> {
         }
         Command::Doctor => Ok(crate::doctor::run(&paths, doctor_system_root())),
         Command::Diff { profile } => crate::diff::run(&paths, &profile),
-
-        // Mutating commands and the remaining read-only ones arrive in later
-        // milestones. Saying so and exiting non-zero is the honest answer;
-        // a stub that silently did nothing would be worse than an error.
-        other => Err(Error::NotPossible {
-            anchor: "not-yet-implemented",
-            why: format!(
-                "`{}` is not implemented yet; M1 ships the read-only commands \
-                 plan, status, list and show, M2 adds recover, M3 adds switch, \
-                 rollback, verify and rescue, M4 adds capture, adopt and init, and M5 \
-                 adds doctor and diff. `gc` is still to come in M5",
-                subcommand_name(&other)
-            ),
-        }),
+        Command::Gc { commit } => gc::run(&paths, commit),
     }
 }
 
@@ -206,26 +197,6 @@ fn doctor_system_root() -> Option<std::path::PathBuf> {
     match std::env::var_os(paths::SANDBOX_VAR) {
         Some(_) => None,
         None => Some(std::path::PathBuf::from("/")),
-    }
-}
-
-fn subcommand_name(c: &Command) -> &'static str {
-    match c {
-        Command::Init { .. } => "init",
-        Command::Status => "status",
-        Command::Doctor => "doctor",
-        Command::List => "list",
-        Command::Show { .. } => "show",
-        Command::Capture { .. } => "capture",
-        Command::Adopt { .. } => "adopt",
-        Command::Plan { .. } => "plan",
-        Command::Switch { .. } => "switch",
-        Command::Rollback { .. } => "rollback",
-        Command::Recover { .. } => "recover",
-        Command::Rescue => "rescue",
-        Command::Verify { .. } => "verify",
-        Command::Diff { .. } => "diff",
-        Command::Gc { .. } => "gc",
     }
 }
 

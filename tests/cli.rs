@@ -224,18 +224,6 @@ fn plan_against_a_real_directory() {
     insta::assert_snapshot!(r.stdout);
 }
 
-/// A command whose milestone has not landed exits `NotPossible` and names the
-/// milestone. It is deliberately not a silent no-op: `--commit` returning 0
-/// without doing anything is the most dangerous thing a half-built version of
-/// this tool could do.
-#[test]
-fn a_command_from_a_later_milestone_is_not_implemented_and_says_so() {
-    let f = with_caelestia("cli_gc");
-    let r = run(&f, &["gc"]);
-    assert_eq!(r.code, ricepilot::error::ExitCode::NotPossible as i32);
-    insta::assert_snapshot!(r.stderr);
-}
-
 /// M1 ships no mutating command at all, so no fixture destination may change.
 /// This asserts the negative directly rather than trusting the dispatch table.
 #[test]

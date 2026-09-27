@@ -10,4 +10,4 @@ not checked, or worth knowing:
   - profile `old`: no manifest has been recorded for it yet, so its tree was not compared with anything
   - running theme daemons (/proc) and snapper's configuration (/etc/snapper) were not checked: this is the test sandbox (D56)
 
-ok: no interrupted operation; 3 owned links intact; the ledger and the manifests agree; 2 hypr trees have an entry file; 1 profile tree matches its recorded manifest; rescue.sh restores generation 0000 and parses; attic: 1 entry, 0 B (the newest, <TS>, 0 B); no verify-config copies
+ok: no interrupted operation; 3 owned links intact; the ledger and the manifests agree; 2 hypr trees have an entry file; 1 profile tree matches its recorded manifest; rescue.sh restores generation 0000 and parses; attic: 1 entry, 0 B (the newest, <TS>, 0 B); no verify-config copies; no interrupted gc

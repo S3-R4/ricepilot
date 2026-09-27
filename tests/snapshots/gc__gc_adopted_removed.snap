@@ -1,0 +1,20 @@
+---
+source: tests/gc.rs
+expression: r.stdout
+---
+gc: <HOME>/.local/state/ricepilot
+nothing outside that directory is removed, and nothing in it unless its name is typed back.
+
+the attic — <HOME>/.local/state/ricepilot/attic
+  candidate  <HOME>/.local/state/ricepilot/attic/<TS>
+             <N> directories, 2 files; <N> bytes
+             holds only what <HOME>/.local/state/ricepilot/journal/done-<TS>.toml says was displaced into it:
+               <HOME>/.local/state/ricepilot/attic/<TS><HOME>/.config/hypr, the directory adopt moved out of ~/.config/hypr; profile `mine` holds an identical copy of it at <HOME>/.local/share/ricepilot/profiles/mine/hypr, and ~/.config/hypr is ricepilot's link
+
+1 candidate (<N> bytes), 0 kept.
+
+remove <HOME>/.local/state/ricepilot/attic/<TS>? it holds <N> directories, 2 files; <N> bytes. this cannot be undone.
+type <TS> to remove it, or anything else to keep it: <TS>
+removed <HOME>/.local/state/ricepilot/attic/<TS>: <N> directories, 2 files; <N> bytes.
+
+removed 1 of 1 candidate.

@@ -268,6 +268,67 @@ impl Journal {
             ),
         })
     }
+
+    /// Every place inside this operation's attic directory that it — or a
+    /// `recover` of it — can have moved something to, relative to that
+    /// directory, and what was moved there.
+    ///
+    /// `gc` reads this to account for what an attic entry holds (D61): an
+    /// object at one of these places is one ricepilot put there and this
+    /// record describes; anything else is not, and keeps the entry. Written
+    /// here, beside the recovery arms that choose the same names, so there is
+    /// one definition of where things land. A name
+    /// `mutate::rename_to_attic` had to suffix (`<name>.1`) is matched by
+    /// the caller.
+    pub fn displaced(&self) -> Vec<(PathBuf, Displaced)> {
+        let mut out = Vec::new();
+        for e in &self.entries {
+            let link = Displaced::Link {
+                dest: e.dest.clone(),
+            };
+            if let Some(rel) = &e.attic_rel {
+                out.push((rel.clone(), link.clone()));
+            }
+            out.push((staged_attic_rel(e), link));
+        }
+        for r in &self.retire {
+            out.push((
+                r.attic_rel.clone(),
+                Displaced::Link {
+                    dest: r.dest.clone(),
+                },
+            ));
+        }
+        for a in &self.adopt {
+            out.push((
+                a.attic_rel.clone(),
+                Displaced::Directory {
+                    dest: a.dest.clone(),
+                    new_target: a.new_target.clone(),
+                },
+            ));
+            out.push((
+                staged_link_rel(a),
+                Displaced::Link {
+                    dest: a.dest.clone(),
+                },
+            ));
+        }
+        out
+    }
+}
+
+/// What one place in an attic directory was made to hold ([`Journal::displaced`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Displaced {
+    /// A link: the old link an exchange displaced, a retired one, or a staged
+    /// link a recovery abandoned. The journal records the target string of
+    /// each, so the link itself carries nothing the record does not.
+    Link { dest: PathBuf },
+    /// The real directory `adopt` moved out of `dest` — the user's own, moved
+    /// and never copied — beside the copy of it the link was made to point
+    /// at, `new_target` (D46, D49).
+    Directory { dest: PathBuf, new_target: PathBuf },
 }
 
 fn old_target_of(dest: &Path, observed: &[Observed]) -> Result<Option<PathBuf>> {

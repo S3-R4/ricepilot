@@ -1,0 +1,28 @@
+---
+source: tests/gc.rs
+expression: "r.stdout.replace(&first.to_lowercase(), \"<the name, in lower case>\")"
+---
+gc: <HOME>/.local/state/ricepilot
+nothing outside that directory is removed, and nothing in it unless its name is typed back.
+
+the attic — <HOME>/.local/state/ricepilot/attic
+  candidate  <HOME>/.local/state/ricepilot/attic/<TS>
+             <N> directories, 2 links; <N> bytes
+             holds only what <HOME>/.local/state/ricepilot/journal/done-<TS>.toml says was displaced into it:
+               2 links, whose targets that journal records
+  candidate  <HOME>/.local/state/ricepilot/attic/<TS>
+             <N> directories, 3 links; <N> bytes
+             holds only what <HOME>/.local/state/ricepilot/journal/done-<TS>.toml says was displaced into it:
+               3 links, whose targets that journal records
+
+2 candidates (<N> bytes), 0 kept.
+
+remove <HOME>/.local/state/ricepilot/attic/<TS>? it holds <N> directories, 2 links; <N> bytes. this cannot be undone.
+type <TS> to remove it, or anything else to keep it: <TS>
+kept <HOME>/.local/state/ricepilot/attic/<TS>: its name was not typed back, so nothing was removed.
+
+remove <HOME>/.local/state/ricepilot/attic/<TS>? it holds <N> directories, 3 links; <N> bytes. this cannot be undone.
+type <TS> to remove it, or anything else to keep it: <the name, in lower case>
+kept <HOME>/.local/state/ricepilot/attic/<TS>: its name was not typed back, so nothing was removed.
+
+removed 0 of 2 candidates.
