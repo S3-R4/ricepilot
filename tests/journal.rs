@@ -207,3 +207,30 @@ fn timestamps_are_readable_because_gc_makes_you_type_them_back() {
         "20240229T000000Z"
     );
 }
+
+/// D40, without the wall clock: an id whose attic or finished journal already
+/// exists gets the next free `-<n>` suffix, so two operations in one second
+/// never share one. The CLI snapshots normalise the suffix away because
+/// whether it appears there depends on the second each command ran in.
+#[test]
+fn an_id_already_taken_gets_the_next_free_suffix() {
+    let f = Fixture::new_in("m5", "journal_unique_id");
+    let state = f.state();
+    let base = "20260927T120000Z";
+    assert_eq!(journal::unique_id(&state, base).unwrap(), base);
+
+    f.attic(base);
+    assert_eq!(
+        journal::unique_id(&state, base).unwrap(),
+        format!("{base}-1")
+    );
+
+    f.file(
+        &format!(".local/state/ricepilot/journal/done-{base}-1.toml"),
+        "",
+    );
+    assert_eq!(
+        journal::unique_id(&state, base).unwrap(),
+        format!("{base}-2")
+    );
+}

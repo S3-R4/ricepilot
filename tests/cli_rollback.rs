@@ -34,6 +34,10 @@ fn run(f: &Fixture, args: &[&str]) -> Run {
     }
 }
 
+/// `common::undate`, plus the `-<n>` that `journal::unique_id` appends when
+/// two operations start in the same second (D40). Whether the rollback lands
+/// in the switch's second is a race against the wall clock, so the suffix is
+/// not part of what these snapshots review; D40 has its own test.
 fn undate(s: &str) -> String {
     let b: Vec<char> = s.chars().collect();
     let is_ts = |i: usize| {
@@ -49,6 +53,12 @@ fn undate(s: &str) -> String {
         if is_ts(i) {
             out.push_str("<TS>");
             i += 16;
+            if b.get(i) == Some(&'-') && b.get(i + 1).is_some_and(char::is_ascii_digit) {
+                i += 1;
+                while b.get(i).is_some_and(char::is_ascii_digit) {
+                    i += 1;
+                }
+            }
         } else {
             out.push(b[i]);
             i += 1;

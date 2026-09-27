@@ -18,7 +18,7 @@ would apply 9 operation(s):
   to attic     <HOME>/.config/hypr.rp-tmp-1 -> <attic><HOME>/.config/hypr
   to attic     <HOME>/.config/btop -> <attic><HOME>/.config/btop
   fsync dir    <HOME>/.config
-  fsync dir    <HOME>/.local/state/ricepilot/attic/<TS>-1
+  fsync dir    <HOME>/.local/state/ricepilot/attic/<TS>
 
 nothing has been changed. re-run with --commit to apply.
 a switch is an on-disk relink: it takes effect at the next login and does not touch
