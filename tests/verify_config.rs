@@ -13,9 +13,7 @@
 mod common;
 
 use std::path::PathBuf;
-use std::process::Command;
 
-use assert_cmd::cargo::cargo_bin;
 use common::{redact, undate, Fixture};
 use ricepilot::cli::render;
 use ricepilot::hyprverify::{NotChecked, Outcome};
@@ -23,11 +21,8 @@ use ricepilot::ops::exec::{self, sandbox, Allowed, SandboxedConfig};
 use ricepilot::plan::{Plan, Refusal};
 
 fn cli(f: &Fixture, args: &[&str]) -> (i32, String, String) {
-    let mut cmd = Command::new(cargo_bin("ricepilot"));
-    cmd.args(args).env_clear();
-    for (k, v) in f.env() {
-        cmd.env(k, v);
-    }
+    let mut cmd = common::ricepilot(f);
+    cmd.args(args);
     let out = cmd.output().unwrap();
     (
         out.status.code().unwrap(),

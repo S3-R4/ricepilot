@@ -22,3 +22,15 @@ UwsmStop not installed
 
 GitStatus not installed
   exit 2  refusing: `git` is not installed in any of /usr/bin, /usr/local/bin. ricepilot runs a subprocess only by absolute path and does not look anywhere else — `PATH` is not consulted (git) [R3]
+
+Hyprctl in the sandbox
+  exit 2  refusing: `hyprctl` reaches the live session, and RICEPILOT_SANDBOX is set: inside the test sandbox ricepilot never runs it (only an explicit RICEPILOT_LIVE_TESTS=1 lets a test run the real one) (hyprctl) [R1]
+
+HyprlandVerifyConfig in the sandbox
+  exit 2  refusing: `Hyprland` reaches the live session, and RICEPILOT_SANDBOX is set: inside the test sandbox ricepilot never runs it (only an explicit RICEPILOT_LIVE_TESTS=1 lets a test run the real one) (Hyprland) [R1]
+
+UwsmStop in the sandbox
+  exit 2  refusing: `uwsm` reaches the live session, and RICEPILOT_SANDBOX is set: inside the test sandbox ricepilot never runs it (uwsm) [R1]
+
+UwsmStop in the sandbox, RICEPILOT_LIVE_TESTS=1
+  exit 2  refusing: `uwsm` reaches the live session, and RICEPILOT_SANDBOX is set: inside the test sandbox ricepilot never runs it (uwsm) [R1]

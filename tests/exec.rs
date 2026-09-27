@@ -68,6 +68,11 @@ fn every_allowlist_entry_is_exercised_or_excused() {
                 "NOT exercised: ends the session; argv and gate asserted, never run"
             }
         };
+        let how = if what.reaches_the_session() {
+            format!("{how}; refused by ops::exec inside the test sandbox (D56)")
+        } else {
+            how.to_string()
+        };
         let at = exec::locate(what)
             .unwrap()
             .map(|p| p.display().to_string())
@@ -416,6 +421,20 @@ fn exec_refusals() {
                 &format!("{what:?} not installed"),
                 exec::not_installed(what),
             );
+        }
+    }
+    // Inside the test sandbox (D56), with and without the live opt-in.
+    for live in [false, true] {
+        for what in Allowed::ALL {
+            let refused = exec::sandbox_refuses(what, |name| match name {
+                exec::SANDBOX_VAR => Some("/repo/target/fixtures".into()),
+                exec::LIVE_TESTS_VAR if live => Some("1".into()),
+                _ => None,
+            });
+            if let Some(e) = refused {
+                let opt_in = if live { ", RICEPILOT_LIVE_TESTS=1" } else { "" };
+                line(&format!("{what:?} in the sandbox{opt_in}"), e);
+            }
         }
     }
     insta::assert_snapshot!(s);

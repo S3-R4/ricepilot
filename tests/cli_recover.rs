@@ -20,12 +20,8 @@ struct Run {
 }
 
 fn run(f: &Fixture, args: &[&str]) -> Run {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("ricepilot"));
+    let mut cmd = common::ricepilot(f);
     cmd.args(args);
-    cmd.env_clear();
-    for (k, v) in f.env() {
-        cmd.env(k, v);
-    }
     let out = cmd.output().unwrap();
     Run {
         stdout: redact(&String::from_utf8_lossy(&out.stdout), f),
@@ -53,7 +49,7 @@ fn crashed(case: &str, mode: ExchangeMode, k: usize) -> Fixture {
         })
         .clone();
 
-    let out = Command::new(helper)
+    let out = common::helper(&helper)
         .arg(case)
         .arg(mode.as_str())
         .arg(k.to_string())

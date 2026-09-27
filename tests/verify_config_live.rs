@@ -12,9 +12,6 @@
 
 mod common;
 
-use std::process::Command;
-
-use assert_cmd::cargo::cargo_bin;
 use common::Fixture;
 use ricepilot::ops::exec::{self, Allowed};
 
@@ -58,11 +55,8 @@ fn real_verify_config_runs_no_exec_line() {
         ),
     );
 
-    let mut cmd = Command::new(cargo_bin("ricepilot"));
-    cmd.args(["plan", "new"]).env_clear();
-    for (k, v) in f.env() {
-        cmd.env(k, v);
-    }
+    let mut cmd = common::ricepilot(&f);
+    cmd.args(["plan", "new"]);
     let out = cmd.output().unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert_eq!(out.status.code(), Some(0), "{stdout}");

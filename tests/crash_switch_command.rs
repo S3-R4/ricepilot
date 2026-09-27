@@ -41,7 +41,7 @@ fn helper() -> PathBuf {
 }
 
 fn crash(case: &str, k: usize) {
-    let out = Command::new(helper())
+    let out = common::helper(&helper())
         .arg(case)
         .arg(k.to_string())
         .output()
@@ -53,12 +53,8 @@ fn crash(case: &str, k: usize) {
 }
 
 fn recover(f: &Fixture) -> (i32, String) {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("ricepilot"));
+    let mut cmd = common::ricepilot(f);
     cmd.args(["recover", "--commit"]);
-    cmd.env_clear();
-    for (k, v) in f.env() {
-        cmd.env(k, v);
-    }
     let out = cmd.output().unwrap();
     (
         out.status.code().unwrap(),
@@ -122,12 +118,8 @@ fn a_second_recover_after_a_crash_has_nothing_to_do() {
     assert_eq!(code, 0);
     let after = m.live();
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("ricepilot"));
+    let mut cmd = common::ricepilot(&m.f);
     cmd.args(["recover", "--commit"]);
-    cmd.env_clear();
-    for (k, v) in m.f.env() {
-        cmd.env(k, v);
-    }
     let out = cmd.output().unwrap();
     assert_eq!(out.status.code().unwrap(), 0);
     assert_eq!(
@@ -147,12 +139,8 @@ fn a_switch_after_a_crash_refuses_until_recover_has_run() {
     let m = switching::attach(case);
     let before = m.live();
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("ricepilot"));
+    let mut cmd = common::ricepilot(&m.f);
     cmd.args(["switch", "old", "--commit"]);
-    cmd.env_clear();
-    for (k, v) in m.f.env() {
-        cmd.env(k, v);
-    }
     let out = cmd.output().unwrap();
     assert_eq!(
         out.status.code().unwrap(),

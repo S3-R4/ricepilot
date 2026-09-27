@@ -48,7 +48,7 @@ fn helper() -> PathBuf {
 
 /// Run the helper, answering its confirmation, and require it to die.
 fn crash(case: &str, k: usize) {
-    let mut child = Command::new(helper())
+    let mut child = common::helper(&helper())
         .arg(case)
         .arg(k.to_string())
         .stdin(Stdio::piped())
@@ -65,12 +65,8 @@ fn crash(case: &str, k: usize) {
 }
 
 fn recover(f: &Fixture) -> (i32, String) {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("ricepilot"));
+    let mut cmd = common::ricepilot(f);
     cmd.args(["recover", "--commit"]);
-    cmd.env_clear();
-    for (k, v) in f.env() {
-        cmd.env(k, v);
-    }
     let out = cmd.output().unwrap();
     (
         out.status.code().unwrap(),
@@ -161,12 +157,8 @@ fn what_recover_says_about_an_interrupted_adopt() {
         crash(case, k);
         let m = adopting::attach(case);
 
-        let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("ricepilot"));
+        let mut cmd = common::ricepilot(&m.f);
         cmd.arg("recover");
-        cmd.env_clear();
-        for (key, value) in m.f.env() {
-            cmd.env(key, value);
-        }
         let out = cmd.output().unwrap();
         assert_eq!(out.status.code().unwrap(), 0);
         insta::assert_snapshot!(
@@ -188,12 +180,8 @@ fn a_second_recover_after_a_crashed_adopt_has_nothing_to_do() {
     assert_eq!(code, 0, "{stderr}");
     let after = ricepilot::ops::mutate::link_target(&m.dest).unwrap();
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("ricepilot"));
+    let mut cmd = common::ricepilot(&m.f);
     cmd.args(["recover", "--commit"]);
-    cmd.env_clear();
-    for (k, v) in m.f.env() {
-        cmd.env(k, v);
-    }
     let out = cmd.output().unwrap();
     assert_eq!(out.status.code().unwrap(), 0);
     assert_eq!(
@@ -217,12 +205,8 @@ fn a_switch_after_a_crashed_adopt_refuses_until_recover_has_run() {
     let m = adopting::attach(case);
     let before = ricepilot::ops::mutate::link_target(&m.dest).unwrap();
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("ricepilot"));
+    let mut cmd = common::ricepilot(&m.f);
     cmd.args(["switch", "mine", "--commit"]);
-    cmd.env_clear();
-    for (k, v) in m.f.env() {
-        cmd.env(k, v);
-    }
     let out = cmd.output().unwrap();
     assert_eq!(
         out.status.code().unwrap(),

@@ -2,25 +2,20 @@
 //! plant each forbidden construct in a fixture tree and assert the CI guard
 //! scripts reject it. If someone weakens a pattern, this goes red.
 //!
-//! Fixtures live under a configurable root (`RICEPILOT_FIXTURE_ROOT`,
-//! default `target/fixtures`) and never outside the repo (SAFETY.md R1).
+//! Fixtures live under the harness's fixture root, `target/fixtures`, and
+//! never outside it (SAFETY.md R1, D56).
 
 // The fixture builder legitimately uses std::fs: it is a test harness living
 // outside src/, building throwaway trees under target/. The guards it invokes
 // only ever scan src/ in CI.
 #![allow(clippy::disallowed_methods)]
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn fixture_root() -> PathBuf {
-    match std::env::var_os("RICEPILOT_FIXTURE_ROOT") {
-        Some(v) => PathBuf::from(v),
-        None => Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join("fixtures"),
-    }
-}
+use common::fixture_root;
 
 /// Build a throwaway `src`-shaped tree containing `body` at `rel`.
 fn fixture(case: &str, rel: &str, body: &str) -> PathBuf {

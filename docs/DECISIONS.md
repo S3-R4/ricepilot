@@ -65,7 +65,9 @@ pattern to silence a false positive, the test goes red.
 whole design turns on `rename(2)` succeeding within one device and failing
 across devices, testing on a filesystem with different semantics than the
 target would hide exactly the bugs that matter. The root is overridable with
-`RICEPILOT_FIXTURE_ROOT` for anyone whose repo is not on `/home`.
+`RICEPILOT_FIXTURE_ROOT` for anyone whose repo is not on `/home`. *(Narrowed
+by D56: the override may only name a directory below `<repo>/target/fixtures`;
+anything else makes the harness panic.)*
 
 ## D6 — `clippy.toml` `disallowed-methods` alongside the greps, not instead
 
@@ -207,7 +209,9 @@ covers `list_dir` rather than `read_dir`.
 override where ricepilot looks. This is not a convenience feature: R1 says no
 test may touch the real `$HOME`, and the only way to *demonstrate* that is
 for the test to run the binary with `env_clear()` and a fixture home, so
-there is no real `HOME` in the environment to find.
+there is no real `HOME` in the environment to find. *(D56: inside the test
+sandbox, every one of these plus `RICEPILOT_RUNTIME_DIR` is required and must
+lie below `<repo>/target/fixtures`; there is no fallback.)*
 
 ## D17 — The documented manifest example was invalid TOML
 
@@ -1302,4 +1306,100 @@ contain a `hyprland.conf` now call it `monitors.conf`, so that no default
 test runs the compositor. The real binary is run only by
 `tests/verify_config_live.rs`, under `RICEPILOT_LIVE_TESTS=1`; `hyprctl
 version` in `tests/exec.rs` is behind the same opt-in, since it talks to the
-running compositor.
+running compositor. *(D56 makes this structural: inside the test sandbox
+`ops::exec` refuses both unless that opt-in is given.)*
+
+## D56 — The test sandbox: `RICEPILOT_SANDBOX` only ever takes away
+
+*M5, by the user's order that the suite must never be able to touch the real
+system.* Until now nothing but convention kept the integration tests off the
+real machine: a test that forgot `Fixture::env()` or `env_clear()` ran
+ricepilot against the real `$HOME`, `Paths::rooted_at` fell back to the real
+`XDG_RUNTIME_DIR` for its lock, the crash helpers inherited the test
+process's `HOME`, and the only thing between a `plan` in a test and the real
+`/usr/bin/Hyprland --verify-config` was that no fixture happened to ship a
+`hyprland.conf` (D55). Each of those is now closed by code.
+
+**One variable, `RICEPILOT_SANDBOX=<root>`.** The harness sets it to
+`<repo>/target/fixtures` (`common::SANDBOX_ROOT`) on its own process the
+first time any test touches the harness (`common::enter_the_sandbox`, called
+by `fixture_root()`), and passes it to every process it starts. While it is
+set:
+
+* `Paths::from_env` requires every one of `RICEPILOT_HOME`,
+  `RICEPILOT_DATA_DIR`, `RICEPILOT_STATE_DIR` and `RICEPILOT_RUNTIME_DIR`,
+  and each must be an absolute, `..`-free path strictly below the root.
+  Nothing falls back to `HOME` or `XDG_RUNTIME_DIR`; a missing or escaping
+  one is refused (R1) and snapshotted. `Paths::rooted_at` — the harness's
+  in-process constructor — no longer falls back to `XDG_RUNTIME_DIR` either,
+  so an in-process lock can only be taken under an explicit runtime override.
+  A value of the variable that is not a plain absolute path is refused, not
+  ignored: a sandbox that switched itself off would be worse than none.
+* `ops::exec::run` refuses `Hyprland`, `hyprctl` and `uwsm`
+  (`Allowed::reaches_the_session`) before it locates anything
+  (`exec::sandbox_refuses`, R1). It is checked in `run`, the one place a
+  child is started, so whatever a caller has found or built — `hyprverify`
+  locates Hyprland and builds the sandboxed copy first — nothing that reaches
+  the session is spawned. `sh -n`, `pacman -Q` and `git status` still run:
+  they are the read-only probes the tests exist to exercise.
+* `RICEPILOT_LIVE_TESTS=1` is read only here, and restores Hyprland and
+  hyprctl — what an unsandboxed ricepilot does anyway — and never `uwsm`.
+  It remains the only way a test runs a real session binary.
+
+**Why disable rather than redirect.** The alternative was a variable naming
+a directory of fake binaries under `target/fixtures`. That is exactly the
+"variable that swaps a binary in a ricepilot anyone runs" D55 ruled out, and
+scoping it ("honoured only when the fixture overrides are also set") would
+make it harder to misuse, not impossible — the overrides are ordinary
+variables too. `RICEPILOT_SANDBOX` needs no scoping because it has no
+direction to be misused in: set by a user, by a script, by accident, it can
+only make ricepilot refuse more. There is no variable that adds a binary, a
+search directory, an allowlist entry or a location. The fake `Hyprland` stays
+the `cfg(test)` thread-local of D55; in that build `hyprctl` and `uwsm` are
+now never located at all.
+
+**What the harness does.** `Fixture::env()` sets, besides the sandbox and
+the four overrides, `HOME` and every `XDG_*` base directory into the
+fixture, so even code that ignored the overrides would find only the fixture;
+it panics if any value it would hand out lies outside the root.
+`fixture_root()` panics on a `RICEPILOT_FIXTURE_ROOT` outside the root —
+which narrows D5: the override can still pick a subdirectory, and can no
+longer move fixtures off the repository (the user's order outranks the
+convenience). `Fixture::new_in` panics unless the process is in the sandbox,
+and after building checks that the home *resolves* — through every symlink,
+so a `target` symlinked elsewhere is caught — below the canonical
+`<repo>/target/fixtures`. Starting a process has exactly three routes, all
+in `tests/common/mod.rs`: `ricepilot(f)` (empty environment plus
+`Fixture::env()`), `helper(path)` for the crash helpers (empty environment
+plus the harness's own variables; the helper builds its fixture and sets
+`Fixture::env()` on itself) and `sh(script)` for the rescue scripts (empty
+environment).
+
+**The guard, `tests/sandbox.rs`.** It fails if any fixture kind's home,
+state directory, profile root, `Fixture::env()` value or resolved `Paths`
+lies outside the root or inside the real `~/.config`, `~/.local` or
+`~/.cache`; if `Fixture::env()` leaves any of the overrides, `HOME` or
+`XDG_*` unset; if the binary does not refuse a missing or escaping override;
+and if a `plan` of a sandboxable `hyprland.conf` — on a machine with Hyprland
+installed — does anything but fail with the sandbox's refusal (the test first
+asks `exec::sandbox_refuses` whether the environment it is about to use
+refuses Hyprland, and stops if not; the config's exec line writes a marker,
+which must not appear). Textually, over every other file in `tests/` and
+`examples/`: no `cargo_bin(`, no `Command::new(` other than `cargo` building
+an example, the harness's `/usr/bin/git` and `tests/guards.rs`'s own, no
+`env_remove(`/`remove_var(`, nothing that sets the sandbox variable, and no
+`Call::Hyprctl(`, `Call::HyprlandVerifyConfig(`, `Call::UwsmStop(` or
+`hyprverify::check(` outside the named live-gated test. Every crash helper
+must use the harness, and one that resolves `Paths` from its environment
+must set `Fixture::env()` on itself first.
+
+**What is not closed, and why.** The in-process variable is set with
+`std::env::set_var` on first use of the harness, not before `main`: a
+constructor needs `#[link_section = ".init_array"]`, which `unsafe_code =
+"forbid"` rejects. A test that named a session-reaching call before touching
+the harness at all would run outside the sandbox; the textual guard is what
+forbids that. The lexical "below the root" check cannot see a symlink placed
+*inside* the sandbox; `ops::read` refuses symlinked intermediate components
+(D9) and the harness's canonical check covers the fixture homes. Neither
+`HOME` nor anything else stops a developer running the real binary by hand;
+that was never a test, and R1 governs it by rule.

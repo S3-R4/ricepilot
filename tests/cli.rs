@@ -7,9 +7,7 @@
 mod common;
 
 use std::path::Path;
-use std::process::Command;
 
-use assert_cmd::cargo::cargo_bin;
 use common::{redact, Fixture};
 
 struct Run {
@@ -19,14 +17,10 @@ struct Run {
 }
 
 fn run(f: &Fixture, args: &[&str]) -> Run {
-    let mut cmd = Command::new(cargo_bin("ricepilot"));
-    cmd.args(args);
     // A cleared environment plus only the fixture variables: if the binary
     // ever reached for the real HOME, there would not be one to find.
-    cmd.env_clear();
-    for (k, v) in f.env() {
-        cmd.env(k, v);
-    }
+    let mut cmd = common::ricepilot(f);
+    cmd.args(args);
     let out = cmd.output().unwrap();
     Run {
         stdout: redact(&String::from_utf8_lossy(&out.stdout), f),

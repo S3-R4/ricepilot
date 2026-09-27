@@ -10,9 +10,8 @@ mod common;
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
-use assert_cmd::cargo::cargo_bin;
 use common::{redact, undate, Fixture};
 use ricepilot::ops::read;
 
@@ -39,12 +38,8 @@ fn normalise_reflinks(out: &str) -> String {
 /// Run the binary with `answer` on stdin. `None` means stdin is an empty
 /// pipe — the "the user pressed ctrl-D" case, which must count as no.
 fn run(f: &Fixture, args: &[&str], answer: Option<&str>) -> Run {
-    let mut cmd = Command::new(cargo_bin("ricepilot"));
+    let mut cmd = common::ricepilot(f);
     cmd.args(args);
-    cmd.env_clear();
-    for (k, v) in f.env() {
-        cmd.env(k, v);
-    }
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());

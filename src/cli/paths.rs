@@ -5,7 +5,8 @@
 //! `$HOME`, and the only way to *prove* a test did not is for the test to be
 //! able to say where home is.
 
-use std::path::{Path, PathBuf};
+use std::ffi::OsString;
+use std::path::{Component, Path, PathBuf};
 
 use crate::{Error, Result};
 
@@ -23,9 +24,42 @@ pub struct Paths {
     pub runtime: Option<PathBuf>,
 }
 
+/// The variable that puts ricepilot inside the test sandbox (D56). Its value
+/// is the sandbox root — `<repo>/target/fixtures` — and while it is set:
+///
+/// * every location must be given by its own override
+///   (`RICEPILOT_HOME`, `RICEPILOT_DATA_DIR`, `RICEPILOT_STATE_DIR`,
+///   `RICEPILOT_RUNTIME_DIR`) and lie under the root: nothing falls back to
+///   `HOME` or `XDG_RUNTIME_DIR`, which is where the real home is;
+/// * `ops::exec` refuses the entries that reach the live session
+///   (`Hyprland`, `hyprctl`, `uwsm`), see [`crate::ops::exec::SANDBOX_VAR`].
+///
+/// It only ever takes capabilities away. There is no variable that gives
+/// ricepilot a binary, a location or a permission it would not otherwise
+/// have.
+pub const SANDBOX_VAR: &str = crate::ops::exec::SANDBOX_VAR;
+
+/// The four location overrides, which the sandbox requires every one of.
+pub const OVERRIDES: [&str; 4] = [
+    "RICEPILOT_HOME",
+    "RICEPILOT_DATA_DIR",
+    "RICEPILOT_STATE_DIR",
+    "RICEPILOT_RUNTIME_DIR",
+];
+
 impl Paths {
     pub fn from_env() -> Result<Self> {
-        let home = match std::env::var_os("RICEPILOT_HOME").or_else(|| std::env::var_os("HOME")) {
+        Self::from_lookup(|name| std::env::var_os(name))
+    }
+
+    /// [`Paths::from_env`] against any environment, so the resolution — and
+    /// the sandbox's refusals — can be tested without touching the test
+    /// process's own variables.
+    pub fn from_lookup(get: impl Fn(&str) -> Option<OsString>) -> Result<Self> {
+        if let Some(root) = sandbox_root(&get)? {
+            return Self::sandboxed(&root, &get);
+        }
+        let home = match get("RICEPILOT_HOME").or_else(|| get("HOME")) {
             Some(h) => PathBuf::from(h),
             None => {
                 return Err(Error::Refused {
@@ -35,22 +69,69 @@ impl Paths {
                 })
             }
         };
-        Ok(Self::rooted_at(home))
+        Ok(Self::rooted_with(home, &get))
     }
 
+    /// Every location from its override, each under `root`, or a refusal.
+    fn sandboxed(root: &Path, get: &impl Fn(&str) -> Option<OsString>) -> Result<Self> {
+        let mut found = Vec::with_capacity(OVERRIDES.len());
+        for name in OVERRIDES {
+            let Some(v) = get(name) else {
+                return Err(Error::Refused {
+                    rule: "R1",
+                    path: PathBuf::from(format!("${name}")),
+                    why: format!(
+                        "{SANDBOX_VAR} is set and {name} is not. Inside the test sandbox every \
+                         location must be given explicitly; ricepilot does not fall back to \
+                         HOME or XDG_RUNTIME_DIR, which is where the real home is"
+                    ),
+                });
+            };
+            let p = PathBuf::from(v);
+            if !lexically_under(&p, root) {
+                return Err(Error::Refused {
+                    rule: "R1",
+                    path: p,
+                    why: format!(
+                        "{name} is not under the sandbox root {} that {SANDBOX_VAR} names \
+                         (an absolute path, below the root, with no `..`)",
+                        root.display()
+                    ),
+                });
+            }
+            found.push(p);
+        }
+        let [home, data, state, runtime] = <[PathBuf; 4]>::try_from(found).expect("four");
+        Ok(Self {
+            home,
+            data,
+            state,
+            runtime: Some(runtime),
+        })
+    }
+
+    /// Locations for an explicit `home`, with the data, state and runtime
+    /// overrides read from the environment. Inside the sandbox (D56) the
+    /// runtime directory is only ever `RICEPILOT_RUNTIME_DIR`: the fallback,
+    /// `XDG_RUNTIME_DIR`, is the real session's.
     pub fn rooted_at(home: impl Into<PathBuf>) -> Self {
-        let home = home.into();
-        let data = match std::env::var_os("RICEPILOT_DATA_DIR") {
+        Self::rooted_with(home.into(), &|name| std::env::var_os(name))
+    }
+
+    fn rooted_with(home: PathBuf, get: &impl Fn(&str) -> Option<OsString>) -> Self {
+        let data = match get("RICEPILOT_DATA_DIR") {
             Some(d) => PathBuf::from(d),
             None => home.join(".local/share/ricepilot"),
         };
-        let state = match std::env::var_os("RICEPILOT_STATE_DIR") {
+        let state = match get("RICEPILOT_STATE_DIR") {
             Some(d) => PathBuf::from(d),
             None => home.join(".local/state/ricepilot"),
         };
-        let runtime = std::env::var_os("RICEPILOT_RUNTIME_DIR")
-            .or_else(|| std::env::var_os("XDG_RUNTIME_DIR"))
-            .map(PathBuf::from);
+        let runtime = match get(SANDBOX_VAR) {
+            Some(_) => get("RICEPILOT_RUNTIME_DIR"),
+            None => get("RICEPILOT_RUNTIME_DIR").or_else(|| get("XDG_RUNTIME_DIR")),
+        }
+        .map(PathBuf::from);
         Self {
             home,
             data,
@@ -174,4 +255,138 @@ pub fn load_all(paths: &Paths) -> Result<Vec<Profile>> {
         out.push(load(paths, &name)?);
     }
     Ok(out)
+}
+
+/// The sandbox root, if [`SANDBOX_VAR`] is set. A value that is not an
+/// absolute, `..`-free path is refused rather than ignored: a sandbox that
+/// silently switched itself off would be worse than none.
+fn sandbox_root(get: &impl Fn(&str) -> Option<OsString>) -> Result<Option<PathBuf>> {
+    let Some(v) = get(SANDBOX_VAR) else {
+        return Ok(None);
+    };
+    let root = PathBuf::from(v);
+    if root.is_absolute() && plain(&root) {
+        return Ok(Some(root));
+    }
+    Err(Error::Refused {
+        rule: "R1",
+        path: root,
+        why: format!("{SANDBOX_VAR} must name an absolute directory with no `..`"),
+    })
+}
+
+/// Absolute, free of `.` and `..`, and strictly below `root`. Lexical, as
+/// everything outside `src/ops/` has to be; a symlink inside the sandbox is
+/// `ops::read`'s to refuse (D9).
+pub fn lexically_under(p: &Path, root: &Path) -> bool {
+    p.is_absolute() && plain(p) && p != root && p.starts_with(root)
+}
+
+fn plain(p: &Path) -> bool {
+    p.components()
+        .all(|c| !matches!(c, Component::ParentDir | Component::CurDir))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<OsString> + 'a {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| OsString::from(v))
+        }
+    }
+
+    const ROOT: &str = "/repo/target/fixtures";
+    const FULL: [(&str, &str); 5] = [
+        (SANDBOX_VAR, ROOT),
+        ("RICEPILOT_HOME", "/repo/target/fixtures/m1/c/home"),
+        (
+            "RICEPILOT_DATA_DIR",
+            "/repo/target/fixtures/m1/c/home/.local/share/ricepilot",
+        ),
+        (
+            "RICEPILOT_STATE_DIR",
+            "/repo/target/fixtures/m1/c/home/.local/state/ricepilot",
+        ),
+        (
+            "RICEPILOT_RUNTIME_DIR",
+            "/repo/target/fixtures/m1/c/home/.run",
+        ),
+    ];
+
+    fn refusal(e: Error) -> (&'static str, PathBuf) {
+        match e {
+            Error::Refused { rule, path, .. } => (rule, path),
+            other => panic!("not a refusal: {other}"),
+        }
+    }
+
+    /// Outside the sandbox, the fallbacks are what they always were.
+    #[test]
+    fn outside_the_sandbox_home_and_the_runtime_dir_fall_back() {
+        let p =
+            Paths::from_lookup(env(&[("HOME", "/home/u"), ("XDG_RUNTIME_DIR", "/run/u")])).unwrap();
+        assert_eq!(p.home, Path::new("/home/u"));
+        assert_eq!(p.state, Path::new("/home/u/.local/state/ricepilot"));
+        assert_eq!(p.runtime.as_deref(), Some(Path::new("/run/u")));
+    }
+
+    /// Inside it, each of the four overrides is required: dropping any one is
+    /// refused, even with the real HOME and XDG_RUNTIME_DIR right there to be
+    /// fallen back on.
+    #[test]
+    fn inside_the_sandbox_a_missing_override_is_refused_not_fallen_back_from() {
+        let mut pairs = FULL.to_vec();
+        pairs.push(("HOME", "/home/u"));
+        pairs.push(("XDG_RUNTIME_DIR", "/run/u"));
+        let p = Paths::from_lookup(env(&pairs)).unwrap();
+        assert_eq!(p.home, Path::new(FULL[1].1));
+        assert_eq!(p.runtime.as_deref(), Some(Path::new(FULL[4].1)));
+
+        for name in OVERRIDES {
+            let without: Vec<_> = pairs.iter().copied().filter(|(k, _)| *k != name).collect();
+            let (rule, path) = refusal(Paths::from_lookup(env(&without)).unwrap_err());
+            assert_eq!(rule, "R1");
+            assert_eq!(path, PathBuf::from(format!("${name}")));
+        }
+    }
+
+    /// And each must lie below the root, lexically, with no `..` to climb out.
+    #[test]
+    fn inside_the_sandbox_a_location_outside_the_root_is_refused() {
+        for (name, bad) in [
+            ("RICEPILOT_HOME", "/home/u"),
+            ("RICEPILOT_DATA_DIR", "/home/u/.local/share/ricepilot"),
+            ("RICEPILOT_STATE_DIR", "/repo/target/fixtures/../../home/u"),
+            ("RICEPILOT_RUNTIME_DIR", "/run/user/1000"),
+            ("RICEPILOT_HOME", ROOT),
+            ("RICEPILOT_HOME", "relative/home"),
+            ("RICEPILOT_HOME", "/repo/target/fixtures-elsewhere/home"),
+        ] {
+            let pairs: Vec<_> = FULL
+                .iter()
+                .map(|&(k, v)| if k == name { (k, bad) } else { (k, v) })
+                .collect();
+            let (rule, path) = refusal(Paths::from_lookup(env(&pairs)).unwrap_err());
+            assert_eq!((rule, path), ("R1", PathBuf::from(bad)), "{name}={bad}");
+        }
+    }
+
+    /// A sandbox root that is not a plain absolute path switches nothing off:
+    /// it is refused.
+    #[test]
+    fn a_malformed_sandbox_root_is_refused() {
+        for bad in ["", "target/fixtures", "/repo/../target"] {
+            let pairs: Vec<_> = FULL
+                .iter()
+                .map(|&(k, v)| if k == SANDBOX_VAR { (k, bad) } else { (k, v) })
+                .collect();
+            let (rule, _) = refusal(Paths::from_lookup(env(&pairs)).unwrap_err());
+            assert_eq!(rule, "R1", "{bad:?}");
+        }
+    }
 }

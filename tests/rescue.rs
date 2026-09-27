@@ -8,7 +8,6 @@
 mod common;
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use common::Fixture;
 use ricepilot::generations::Generation;
@@ -61,7 +60,7 @@ fn switched(case: &str) -> World {
 }
 
 fn run_script(path: &Path) -> String {
-    let out = Command::new("/bin/sh").arg(path).output().unwrap();
+    let out = common::sh(path).output().unwrap();
     assert!(
         out.status.success(),
         "the rescue script exited {:?}:\n{}",

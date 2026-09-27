@@ -224,7 +224,7 @@ fn the_out_of_process_abort_reaches_the_same_conclusion() {
 
         for k in 0..op_count {
             let case = format!("abort_{}_{k}", mode.as_str());
-            let out = Command::new(helper())
+            let out = common::helper(&helper())
                 .arg(&case)
                 .arg(mode.as_str())
                 .arg(k.to_string())

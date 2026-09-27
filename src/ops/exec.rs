@@ -38,6 +38,10 @@
 //!   it started: each child leads a process group of its own, and the group
 //!   is what is killed (D54). Output past the cap is drained and discarded,
 //!   and the [`Ran`] says it was.
+//! * **Never, from inside the test sandbox, if it reaches the session.**
+//!   With [`SANDBOX_VAR`] set, `Hyprland`, `hyprctl` and `uwsm` are refused
+//!   before anything is located ([`sandbox_refuses`], D56). The test harness
+//!   sets it for every test process and every binary it starts.
 //!
 //! # The two entries that are not ordinary queries
 //!
@@ -99,6 +103,22 @@ pub const OUTPUT_CAP: usize = 1 << 20;
 /// can be asserted without being able to do it.
 pub const UWSM_STOP_ARGV: &[&str] = &["stop"];
 
+/// The test sandbox (D56). While it is set, [`run`] refuses every entry that
+/// reaches the live session — [`Allowed::reaches_the_session`] — before
+/// anything is located or spawned. The value is the sandbox root, which
+/// `cli::paths` holds every location to.
+///
+/// It can only take away. No variable adds a binary, a directory to search
+/// or an entry to the allowlist; the fake `Hyprland` the unit tests use is a
+/// `cfg(test)` thread-local, not an environment variable (D55).
+pub const SANDBOX_VAR: &str = "RICEPILOT_SANDBOX";
+
+/// The one way the tests run the real `Hyprland` or `hyprctl`: set to `1`
+/// alongside [`SANDBOX_VAR`]. Read only inside the sandbox, where it restores
+/// what an unsandboxed ricepilot does anyway — so it can widen nothing — and
+/// never for `uwsm stop`.
+pub const LIVE_TESTS_VAR: &str = "RICEPILOT_LIVE_TESTS";
+
 /// How long a killed child's pipes are waited on after it has gone. A
 /// grandchild can hold them open; ricepilot does not wait for one.
 const DRAIN_GRACE: Duration = Duration::from_millis(500);
@@ -123,6 +143,16 @@ impl Allowed {
             Allowed::HyprlandVerifyConfig => "Hyprland",
             Allowed::UwsmStop => "uwsm",
             Allowed::GitStatus => "git",
+        }
+    }
+
+    /// Whether this entry reaches the running session: `Hyprland` is the
+    /// compositor, `hyprctl` talks to it, `uwsm stop` ends it. These are the
+    /// entries the test sandbox refuses (D56).
+    pub fn reaches_the_session(self) -> bool {
+        match self {
+            Allowed::Hyprctl | Allowed::HyprlandVerifyConfig | Allowed::UwsmStop => true,
+            Allowed::ShSyntaxCheck | Allowed::PacmanQuery | Allowed::GitStatus => false,
         }
     }
 
@@ -423,12 +453,17 @@ pub fn locate(what: Allowed) -> Result<Option<PathBuf>> {
         return Ok(Some(PathBuf::from(SH)));
     }
     // In the crate's own unit tests, `Hyprland` is whatever stand-in the test
-    // installed, or absent — never the real binary (D55). Compiled out of
-    // every other build, so there is no variable or flag that swaps a binary
-    // in a ricepilot anyone runs.
+    // installed, or absent — never the real binary (D55) — and `hyprctl` and
+    // `uwsm` are absent (D56). Compiled out of every other build, so there is
+    // no variable or flag that swaps a binary in a ricepilot anyone runs.
     #[cfg(test)]
-    if what == Allowed::HyprlandVerifyConfig {
-        return Ok(test_support::FAKE_HYPRLAND.with(|f| f.borrow().clone()));
+    if what.reaches_the_session() {
+        return Ok(match what {
+            Allowed::HyprlandVerifyConfig => {
+                test_support::FAKE_HYPRLAND.with(|f| f.borrow().clone())
+            }
+            _ => None,
+        });
     }
     for dir in BIN_DIRS {
         let candidate = Path::new(dir).join(what.program());
@@ -469,8 +504,48 @@ pub fn not_installed(what: Allowed) -> Error {
     }
 }
 
+/// The refusal [`run`] gives inside the test sandbox for an entry that
+/// reaches the live session, or `None` if `what` may run (D56).
+///
+/// Checked in `run` itself, the one place a child is started, rather than in
+/// [`locate`]: whatever a caller has found or built, nothing that reaches the
+/// session is spawned from inside the sandbox.
+pub fn sandbox_refuses(what: Allowed, get: impl Fn(&str) -> Option<OsString>) -> Option<Error> {
+    get(SANDBOX_VAR)?;
+    if !what.reaches_the_session() {
+        return None;
+    }
+    let live = get(LIVE_TESTS_VAR).is_some_and(|v| v == "1");
+    if live && what != Allowed::UwsmStop {
+        return None;
+    }
+    Some(Error::Refused {
+        rule: "R1",
+        path: PathBuf::from(what.program()),
+        why: format!(
+            "`{}` reaches the live session, and {SANDBOX_VAR} is set: inside the test sandbox \
+             ricepilot never runs it{}",
+            what.program(),
+            if what == Allowed::UwsmStop {
+                ""
+            } else {
+                " (only an explicit RICEPILOT_LIVE_TESTS=1 lets a test run the real one)"
+            }
+        ),
+    })
+}
+
 fn run_within(call: Call<'_>, limit: Duration) -> Result<Ran> {
+    run_in(call, limit, |name| std::env::var_os(name))
+}
+
+/// [`run_within`] against the environment `get` describes: the sandbox check
+/// and the variables passed through both read it.
+fn run_in(call: Call<'_>, limit: Duration, get: impl Fn(&str) -> Option<OsString>) -> Result<Ran> {
     let what = call.allowed();
+    if let Some(refusal) = sandbox_refuses(what, &get) {
+        return Err(refusal);
+    }
     let args = call.argv()?;
     let Some(program) = locate(what)? else {
         return Err(not_installed(what));
@@ -482,7 +557,7 @@ fn run_within(call: Call<'_>, limit: Duration) -> Result<Ran> {
         .env("LC_ALL", "C")
         .current_dir("/");
     for name in what.passes() {
-        if let Some(v) = std::env::var_os(name) {
+        if let Some(v) = get(name) {
             cmd.env(name, v);
         }
     }
@@ -719,6 +794,58 @@ mod tests {
         let (kept, truncated) = collect(drain(Some(small)));
         assert_eq!(kept, b"yyyyyyyyyy");
         assert!(!truncated);
+    }
+
+    /// The sandbox refuses exactly the entries that reach the session; the
+    /// live-tests opt-in restores Hyprland and hyprctl and never `uwsm stop`;
+    /// outside the sandbox nothing is refused (D56).
+    #[test]
+    fn the_sandbox_refuses_what_reaches_the_session_and_nothing_else() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| OsString::from(v))
+            }
+        };
+        let outside = env(&[(LIVE_TESTS_VAR, "1")]);
+        let sandbox = env(&[(SANDBOX_VAR, "/r/target/fixtures")]);
+        let live = env(&[(SANDBOX_VAR, "/r/target/fixtures"), (LIVE_TESTS_VAR, "1")]);
+        let not_one = env(&[(SANDBOX_VAR, "/r/target/fixtures"), (LIVE_TESTS_VAR, "yes")]);
+        for what in Allowed::ALL {
+            assert!(sandbox_refuses(what, outside).is_none(), "{what:?}");
+            let refused = sandbox_refuses(what, sandbox).is_some();
+            assert_eq!(refused, what.reaches_the_session(), "{what:?}");
+            assert_eq!(
+                sandbox_refuses(what, not_one).is_some(),
+                what.reaches_the_session(),
+                "{what:?}"
+            );
+            assert_eq!(
+                sandbox_refuses(what, live).is_some(),
+                what == Allowed::UwsmStop,
+                "{what:?}"
+            );
+        }
+    }
+
+    /// And `run` itself honours it, before `locate`. `hyprctl version` is the
+    /// call because it needs no sandboxed config; in this build `hyprctl` is
+    /// never located (above), so were the check missing the answer would be
+    /// "not installed" (R3), not the sandbox's R1 — and nothing would run.
+    #[test]
+    fn run_checks_the_sandbox_before_anything_else() {
+        let e = run_in(
+            Call::Hyprctl(HyprctlQuery::Version),
+            Duration::from_secs(5),
+            |name| (name == SANDBOX_VAR).then(|| OsString::from("/r/target/fixtures")),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&e, Error::Refused { rule: "R1", .. }),
+            "not the sandbox refusal: {e}"
+        );
     }
 
     /// A child that overruns is killed and the call is an error, not a hang.

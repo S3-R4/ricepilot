@@ -13,14 +13,22 @@ Rules are referenced by identifier from error messages and code comments.
 No test, build step, script or development command reads, writes, links, moves
 or deletes anything under `$HOME/.config`, `$HOME/.local` or the user's rice
 clone. Tests operate on throwaway trees under a configurable fixture root
-(`RICEPILOT_FIXTURE_ROOT`, default `target/fixtures/` inside the repo — *not*
+(`target/fixtures/` inside the repo; `RICEPILOT_FIXTURE_ROOT` may pick a
+directory below it and nothing else — *not*
 `/tmp`, which is a tmpfs with a different `st_dev` and would silently change
 what `rename(2)` does).
 
 The only exception is the supervised acceptance run at M5, with the user
 present, through ricepilot's own dry-run → `--commit` path.
 
-*Enforced by*: fixture root defaults to the repo; reviewed in CI by eye.
+*Enforced by*: the test sandbox (D56). Every test process and every process
+it starts carries `RICEPILOT_SANDBOX=<repo>/target/fixtures`; inside it
+ricepilot refuses any location not given explicitly and below that root, and
+refuses to start `Hyprland`, `hyprctl` or `uwsm` (only
+`RICEPILOT_LIVE_TESTS=1` lets a test run the first two). The harness panics on
+a fixture outside the root, and `tests/sandbox.rs` fails if a fixture path or
+variable escapes it or if a test starts a process by any route but the
+harness's.
 
 ## R2 — No delete primitive outside `src/gc/`, no syscall outside `src/ops/`
 

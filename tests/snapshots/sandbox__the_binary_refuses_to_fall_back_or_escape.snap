@@ -1,0 +1,23 @@
+---
+source: tests/sandbox.rs
+expression: s
+---
+--- without RICEPILOT_HOME
+exit 2
+ricepilot: refusing: RICEPILOT_SANDBOX is set and RICEPILOT_HOME is not. Inside the test sandbox every location must be given explicitly; ricepilot does not fall back to HOME or XDG_RUNTIME_DIR, which is where the real home is ($RICEPILOT_HOME) [R1]
+
+--- without RICEPILOT_DATA_DIR
+exit 2
+ricepilot: refusing: RICEPILOT_SANDBOX is set and RICEPILOT_DATA_DIR is not. Inside the test sandbox every location must be given explicitly; ricepilot does not fall back to HOME or XDG_RUNTIME_DIR, which is where the real home is ($RICEPILOT_DATA_DIR) [R1]
+
+--- without RICEPILOT_STATE_DIR
+exit 2
+ricepilot: refusing: RICEPILOT_SANDBOX is set and RICEPILOT_STATE_DIR is not. Inside the test sandbox every location must be given explicitly; ricepilot does not fall back to HOME or XDG_RUNTIME_DIR, which is where the real home is ($RICEPILOT_STATE_DIR) [R1]
+
+--- without RICEPILOT_RUNTIME_DIR
+exit 2
+ricepilot: refusing: RICEPILOT_SANDBOX is set and RICEPILOT_RUNTIME_DIR is not. Inside the test sandbox every location must be given explicitly; ricepilot does not fall back to HOME or XDG_RUNTIME_DIR, which is where the real home is ($RICEPILOT_RUNTIME_DIR) [R1]
+
+--- RICEPILOT_STATE_DIR outside
+exit 2
+ricepilot: refusing: RICEPILOT_STATE_DIR is not under the sandbox root <SANDBOX> that RICEPILOT_SANDBOX names (an absolute path, below the root, with no `..`) (<REAL-HOME>/.local/state/ricepilot) [R1]

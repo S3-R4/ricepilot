@@ -9,9 +9,7 @@ mod common;
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
-use std::process::Command;
 
-use assert_cmd::cargo::cargo_bin;
 use common::{redact, Fixture};
 use ricepilot::ops::read;
 
@@ -40,12 +38,8 @@ fn normalise_reflinks(out: &str) -> String {
 }
 
 fn run(f: &Fixture, args: &[&str]) -> Run {
-    let mut cmd = Command::new(cargo_bin("ricepilot"));
+    let mut cmd = common::ricepilot(f);
     cmd.args(args);
-    cmd.env_clear();
-    for (k, v) in f.env() {
-        cmd.env(k, v);
-    }
     let out = cmd.output().unwrap();
     Run {
         stdout: normalise_reflinks(&redact(&String::from_utf8_lossy(&out.stdout), f)),

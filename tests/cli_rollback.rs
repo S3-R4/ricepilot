@@ -7,8 +7,6 @@
 
 mod common;
 
-use std::process::Command;
-
 use common::{redact, switching, Fixture};
 use ricepilot::error::ExitCode;
 use ricepilot::ops::read;
@@ -20,12 +18,8 @@ struct Run {
 }
 
 fn run(f: &Fixture, args: &[&str]) -> Run {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("ricepilot"));
+    let mut cmd = common::ricepilot(f);
     cmd.args(args);
-    cmd.env_clear();
-    for (k, v) in f.env() {
-        cmd.env(k, v);
-    }
     let out = cmd.output().unwrap();
     Run {
         stdout: redact(&String::from_utf8_lossy(&out.stdout), f),
@@ -229,8 +223,7 @@ fn the_rescue_script_reaches_the_same_state_as_rollback() {
 
     let m = switching::build("rollback_vs_rescue_sh");
     run(&m.f, &["switch", "new", "--commit"]);
-    let out = Command::new("/bin/sh")
-        .arg(ricepilot::rescue::path(&m.f.state()))
+    let out = common::sh(&ricepilot::rescue::path(&m.f.state()))
         .output()
         .unwrap();
     assert!(
