@@ -183,17 +183,11 @@ fn said(e: &Error) -> String {
 }
 
 /// A path as one shell word: bare when it is made only of characters no
-/// shell treats specially, single-quoted otherwise.
+/// shell treats specially, single-quoted otherwise. A command that ends up
+/// naming a path with a control character in it is not printed as one: the
+/// report's layout replaces it (D72).
 fn sh(p: &Path) -> String {
-    let s = p.to_string_lossy();
-    let plain = !s.is_empty()
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || "/._-+@%=:,".contains(c));
-    if plain {
-        s.into_owned()
-    } else {
-        format!("'{}'", s.replace('\'', "'\\''"))
-    }
+    crate::shellword::quoted(p)
 }
 
 /// `~/…` for a path under home, as a manifest spells a destination.

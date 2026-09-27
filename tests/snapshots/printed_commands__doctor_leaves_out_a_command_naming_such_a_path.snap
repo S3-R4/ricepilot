@@ -1,0 +1,25 @@
+---
+source: tests/printed_commands.rs
+expression: "format!(\"exit {code}\\n{text}\")"
+---
+exit 0
+ricepilot doctor: no problems, 1 hazard. nothing was changed; the commands are for you to run.
+
+HAZARD 1 of 1: <HOME>/.local/state/rice\necho INJECTED #/verify
+  holds 21 scratch copies, 0 B in all.
+  rule: D55 (the scratch copy stays, as the record of what was parsed)
+
+  every `plan`, `switch` and `rollback` into a profile with a hyprland.conf
+  leaves one. the oldest is 20260927T120000Z, the newest 20260927T120020Z. only `gc` reclaims them.
+
+  run:
+    # left out: a path in this command holds a control character, and a line
+    # pasted into a shell cannot carry one (D72). written out, it is:
+    #   du -sh '<HOME>/.local/state/rice\necho INJECTED #/verify'
+    # lists them; `--commit` asks for each one's name before it removes it
+    ricepilot gc
+
+not checked, or worth knowing:
+  - running theme daemons (/proc) and snapper's configuration (/etc/snapper) were not checked: this is the test sandbox (D56)
+
+ok: no interrupted operation; no owned links; no switch yet, so no rescue script is needed; attic empty; no interrupted gc

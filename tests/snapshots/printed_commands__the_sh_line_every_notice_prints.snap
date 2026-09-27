@@ -1,0 +1,8 @@
+---
+source: tests/printed_commands.rs
+expression: s
+---
+sh /home/u/.local/state/ricepilot/rescue.sh
+sh '/home/u/my state/rescue.sh'
+(no command is printed for /home/u/a\necho INJECTED #/rescue.sh: its name holds a control character, which a line pasted into a shell cannot carry. D72)
+(no command is printed for /home/u/a\u{1b}[2J/rescue.sh: its name holds a control character, which a line pasted into a shell cannot carry. D72)

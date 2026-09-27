@@ -275,12 +275,17 @@ fn keep_line(k: &Keep, home: &Path) -> String {
             let d = tilde(dest, home);
             let head = format!("holds {}, the directory adopt moved out of {d}", at(p));
             match why {
-                NotHeld::DestNotOurs { now } if now == "absent" => format!(
-                    "{head}, and nothing is at {d} now: this is the way back to it, which \
-                     rollback does not take (D49). to put it back: mv -nT {} {}",
-                    at(p),
-                    dest.display()
-                ),
+                NotHeld::DestNotOurs { now } if now == "absent" => {
+                    let back = match (crate::shellword::word(p), crate::shellword::word(dest)) {
+                        (Some(from), Some(to)) => format!("to put it back: mv -nT {from} {to}"),
+                        (None, _) => crate::shellword::withheld(p),
+                        (_, None) => crate::shellword::withheld(dest),
+                    };
+                    format!(
+                        "{head}, and nothing is at {d} now: this is the way back to it, which \
+                         rollback does not take (D49). {back}"
+                    )
+                }
                 NotHeld::DestNotOurs { now } => format!(
                     "{head}, and {d} is not ricepilot's link now (it is a {now}), so this may be \
                      the only way back to it (D49)"

@@ -460,16 +460,25 @@ pub fn verify(
     s
 }
 
+/// `sh <script>`, to paste at a TTY — or, for a path no pasted line can
+/// carry, the reason it is not printed (D72).
+pub fn sh_line(script: &Path) -> String {
+    match crate::shellword::word(script) {
+        Some(w) => format!("sh {w}"),
+        None => crate::shellword::withheld(script),
+    }
+}
+
 /// `ricepilot rescue`. Prints where the script is and what running it does —
 /// and prints the command in full, because the person reading this may be
 /// typing it at a TTY from a photograph of another screen.
 pub fn rescue(path: &Path) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "the standalone rescue script is at:");
-    let _ = writeln!(s, "  {}", path.display());
+    let _ = writeln!(s, "  {}", crate::rescue::printable(&path.to_string_lossy()));
     let _ = writeln!(s);
     let _ = writeln!(s, "run it from a TTY (Ctrl+Alt+F2 … F6) with:");
-    let _ = writeln!(s, "  sh {}", path.display());
+    let _ = writeln!(s, "  {}", sh_line(path));
     let _ = writeln!(s);
     let _ = writeln!(
         s,
@@ -720,8 +729,8 @@ pub fn switch_done(
     );
     let _ = writeln!(
         s,
-        "  sh {}   the same thing, from a TTY, without ricepilot",
-        script.display()
+        "  {}   the same thing, from a TTY, without ricepilot",
+        sh_line(script)
     );
     let _ = writeln!(s);
     let _ = writeln!(
@@ -1052,11 +1061,13 @@ pub fn adopt_done(
         s,
         "  ricepilot recover      (only while something is in flight)"
     );
-    let _ = writeln!(
-        s,
-        "  mv -nT <the path above> {}   after moving the link aside",
-        a.dest.display()
-    );
+    let _ = match crate::shellword::word(&a.dest) {
+        Some(dest) => writeln!(
+            s,
+            "  mv -nT <the path above> {dest}   after moving the link aside"
+        ),
+        None => writeln!(s, "  {}", crate::shellword::withheld(&a.dest)),
+    };
     let _ = writeln!(s);
     let _ = writeln!(
         s,
@@ -1076,7 +1087,7 @@ pub fn adopt_done(
         "the rescue script now restores generation {:04}:",
         generation - 1
     );
-    let _ = writeln!(s, "  sh {}", script.display());
+    let _ = writeln!(s, "  {}", sh_line(script));
     s
 }
 

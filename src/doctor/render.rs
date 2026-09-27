@@ -62,7 +62,11 @@ fn headline(r: &Report) -> String {
 
 fn finding(s: &mut String, label: &str, n: usize, of: usize, f: &Finding) {
     let _ = writeln!(s);
-    let _ = writeln!(s, "{label} {n} of {of}: {}", f.path.display());
+    let _ = writeln!(
+        s,
+        "{label} {n} of {of}: {}",
+        crate::rescue::printable(&f.path.to_string_lossy())
+    );
     let _ = writeln!(s, "  {}.", f.what);
     let _ = writeln!(s, "  rule: {}", f.rule);
     for d in &f.detail {
@@ -74,7 +78,11 @@ fn finding(s: &mut String, label: &str, n: usize, of: usize, f: &Finding) {
     if !f.run.is_empty() {
         let _ = writeln!(s);
         let _ = writeln!(s, "  run:");
-        for line in &f.run {
+        for line in f
+            .run
+            .iter()
+            .flat_map(|l| crate::shellword::command_lines(l))
+        {
             let _ = writeln!(s, "    {line}");
         }
     }

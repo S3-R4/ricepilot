@@ -31,8 +31,10 @@ pub enum ExitCode {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// A pre-flight refusal: `rule` is the `SAFETY.md` identifier, `path` the
-    /// concrete path that triggered it.
-    #[error("refusing: {why} ({path}) [{rule}]")]
+    /// concrete path that triggered it — shown with any control character
+    /// written out, so a newline in a path cannot start a line of its own
+    /// (D72).
+    #[error("refusing: {why} ({}) [{rule}]", shown(path))]
     Refused {
         rule: &'static str,
         path: PathBuf,
@@ -47,7 +49,7 @@ pub enum Error {
     #[error("profile `{profile}`: {detail}")]
     Manifest { profile: String, detail: String },
 
-    #[error("another ricepilot holds {path}")]
+    #[error("another ricepilot holds {}", shown(path))]
     Locked { path: PathBuf },
 
     #[error("{context}: {source}")]
@@ -56,6 +58,10 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+}
+
+fn shown(p: &std::path::Path) -> String {
+    crate::rescue::printable(&p.to_string_lossy())
 }
 
 impl Error {

@@ -30,6 +30,7 @@ pub mod ops;
 pub mod plan;
 pub mod requires;
 pub mod rescue;
+pub mod shellword;
 pub mod survey;
 pub mod verify;
 

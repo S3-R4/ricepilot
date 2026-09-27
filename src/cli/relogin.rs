@@ -978,7 +978,7 @@ pub fn cleared_text(c: &Cleared) -> String {
         done.generation()
     );
     let _ = writeln!(s, "if it does not come up, from a TTY (Ctrl+Alt+F2 … F6):");
-    let _ = writeln!(s, "  sh {}", done.rescue().display());
+    let _ = writeln!(s, "  {}", super::render::sh_line(done.rescue()));
     s
 }
 

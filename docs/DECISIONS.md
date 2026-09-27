@@ -2344,10 +2344,10 @@ marker file, and the link restored; it also tokenises the script as `sh`
 would (single quotes, `\`, `#` comments) and asserts the payload appears in
 no code outside quotes.
 
-Not covered: the commands `doctor` and RECOVERY.md print are not a script,
-and a path from the live filesystem with a newline in it is printed there
-inside single quotes, across two lines. Copied whole it is one argument;
-it is not escaped.
+Not covered here: the commands `doctor` and RECOVERY.md print are not a
+script, and a path from the live filesystem with a newline in it was
+printed there inside single quotes, across two lines. D72 covers the
+commands ricepilot prints.
 
 ## D69 — The session check declines ssh, tmux/screen/zellij and a virtual console, and says it is evidence, not proof
 
@@ -2465,4 +2465,46 @@ A refusal rather than a warning, because the only way to honour the
 denylist under such a link is not to make it; and not "manage it but skip
 the denied children", because a directory link has no children of its own
 to skip.
+
+## D72 — A command naming a path with a control character is not printed; the reason is
+
+*M5, follow-up to D68.* `doctor`'s fixes, the adopt summary's way back,
+`gc`'s note on a kept adopt entry, and the `sh …/rescue.sh` line that
+`rescue`, every switch and rollback, every adopt and `--relogin` print are
+meant to be pasted or retyped at a TTY. A path holding a newline was
+printed inside single quotes and so across two lines: to `sh` one
+argument, to a person copying lines off a screen two commands, the second
+of them whatever followed the newline. The state directory, the attic
+under it and link targets read back from the live filesystem are not
+manifest values, so D68's refusal does not reach them.
+
+**Declined, not escaped.** POSIX `sh` has no quoting that spells a newline
+on one line — `$'…'` entered POSIX only in 2024 and is not in every
+`/bin/sh`, and RECOVERY.md promises commands that work "from any shell" —
+and a command that only works in some shells is
+the wrong thing to print to someone at a TTY. So `src/shellword.rs`, pure:
+
+* `word` gives a path as one shell word (bare or single-quoted, the rule
+  `doctor` already used), or `None` if it holds a control character
+  (`char::is_control`, as D68); callers print `withheld` instead, which
+  says no command is printed and shows the path with `rescue::printable`'s
+  escapes.
+* `doctor` builds its commands first and lays them out in one place, so
+  its layout checks every `run:` line there: one with a control character
+  is replaced by `#` comment lines that say why and show the command
+  written out. A pasted comment runs nothing. The problem's heading path is
+  written out the same way.
+* A refusal's path (`Error::Refused`, `Error::Locked`) is written out the
+  same way, so a newline in one cannot start a line of its own.
+
+For every path without a control character the output is byte-for-byte
+what it was, which is why no existing snapshot moved. The `sh` lines and
+the adopt and gc `mv` lines, which printed paths bare, now quote a path
+with a space in it, as doctor's always did.
+
+Not covered: a path in the free text of a finding's detail, or in any other
+message, is still printed as it is; a path that is not valid UTF-8 is
+printed lossily, so a command naming one names a different path; and a
+Unicode format character (a bidirectional override) is not a control
+character and is printed as it is.
 
