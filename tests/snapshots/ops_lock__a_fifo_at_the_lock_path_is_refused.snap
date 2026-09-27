@@ -1,0 +1,6 @@
+---
+source: tests/ops_lock.rs
+expression: recover_shown(&f)
+---
+exit 2
+ricepilot: refusing: the lock file must be a regular file you own, and this is a fifo. it was not followed or locked: anything else could have been planted to make ricepilot open, create or wait on some other file. nothing was changed. if no ricepilot is running, move it aside and run the command again (D74) (<HOME>/.run/ricepilot.lock) [R4]

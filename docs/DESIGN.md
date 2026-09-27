@@ -146,7 +146,9 @@ the installer wrote. Refusing and telling the user is the correct outcome.
 **Phase A — decide (no mutation):**
 
 1. Acquire the lock (`LOCK_NB`; a second ricepilot exits `Locked`, it does not
-   queue behind a half-finished switch).
+   queue behind a half-finished switch). The lock file is opened
+   `O_NOFOLLOW`, never truncated, and must be a regular file the user owns;
+   a symlink, fifo or anything else there is refused (D74).
 2. Observe every destination through dirfds and `*at()`.
 3. Classify each into one of the five shapes.
 4. `plan()` — pure.

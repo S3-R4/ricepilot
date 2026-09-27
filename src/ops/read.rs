@@ -292,18 +292,8 @@ pub(super) fn open_regular(path: &Path) -> Result<OwnedFd> {
     Ok(fd)
 }
 
-// `st_mode` is `u32` here and not everywhere, as in [`meta_of`].
-#[allow(clippy::unnecessary_cast)]
 fn not_regular(path: &Path, st: &rustix::fs::Stat) -> Error {
-    let what = match st.st_mode as u32 & 0o170000 {
-        0o010000 => "a fifo",
-        0o140000 => "a socket",
-        0o020000 => "a character device",
-        0o060000 => "a block device",
-        0o040000 => "a directory",
-        0o120000 => "a symlink",
-        _ => "not a regular file",
-    };
+    let what = kind_name(st);
     Error::Refused {
         rule: "R4",
         path: path.to_path_buf(),
@@ -311,6 +301,22 @@ fn not_regular(path: &Path, st: &rustix::fs::Stat) -> Error {
             "expected a regular file here, and this is {what}. ricepilot reads only regular \
              files: opening a fifo would wait for a writer for ever"
         ),
+    }
+}
+
+/// What `st` is, in words: "a fifo", "a symlink", "a directory" …
+// `st_mode` is `u32` here and not everywhere, as in [`meta_of`].
+#[allow(clippy::unnecessary_cast)]
+pub(super) fn kind_name(st: &rustix::fs::Stat) -> &'static str {
+    match st.st_mode as u32 & 0o170000 {
+        0o010000 => "a fifo",
+        0o140000 => "a socket",
+        0o020000 => "a character device",
+        0o060000 => "a block device",
+        0o040000 => "a directory",
+        0o120000 => "a symlink",
+        0o100000 => "a regular file",
+        _ => "not a regular file",
     }
 }
 

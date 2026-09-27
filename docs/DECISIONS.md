@@ -2565,3 +2565,40 @@ Every script's bytes change, so a `rescue.sh` written before this is not
 what ricepilot would now write: `doctor` reports it (its message now also
 names "an older ricepilot wrote it") and `--relogin` refuses it until the
 next `switch --commit` or `rollback --commit` writes it again.
+
+## D74 — The lock file is opened `O_NOFOLLOW` and must be a regular file the user owns
+
+*M5, residual gap after red-team #2.* `ops::lock::acquire` opened
+`$XDG_RUNTIME_DIR/ricepilot.lock` (or `$RICEPILOT_RUNTIME_DIR/…`) with
+`O_RDWR | O_CREAT | O_CLOEXEC`. The parent directories were already walked
+`O_NOFOLLOW` (`read::parent_dirfd`), but the final component was followed:
+a symlink planted at the lock's name made ricepilot open — or, with
+`O_CREAT`, create — a file wherever it pointed, and lock that. A fifo there
+was opened too (`O_RDWR` does not block on a fifo on Linux, but the lock it
+took would mean nothing to another ricepilot that found something else).
+
+**What it does now,** in the shape `read::open_regular` has had for reads
+since red-team #2's finding 5:
+
+* look first, `fstatat(AT_SYMLINK_NOFOLLOW)`: anything at the name that is
+  not a regular file owned by the effective uid is refused *before* it is
+  opened — an open of a device can do something by itself;
+* then `openat(O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC,
+  0600)`: a symlink swapped in after the look is `ELOOP`, reported as the
+  same refusal; `O_NONBLOCK` so a fifo swapped in cannot hang the open;
+  never `O_TRUNC` (R2, as before);
+* then the descriptor's own `fstat` must say regular file, owned by the
+  effective uid, before `flock` is tried.
+
+The refusal is `Error::Refused` under R4 (exit 2), names the path and says
+the rule — "the lock file must be a regular file you own", what it is
+instead, that nothing was changed, and to move it aside if no ricepilot is
+running. Refused, not replaced: the lock's name is shared with every other
+ricepilot, and moving something aside while another might be holding it is
+exactly what D58's `is_at_its_path` exists to detect.
+
+Tested with a planted symlink (its target, absent, is still absent; the
+link is untouched) and a fifo, each through `lock::acquire` and through
+`ricepilot recover`, whose dry run takes the lock; both refusals are
+snapshotted. The owner check is not exercised: a file owned by someone else
+cannot be made in a fixture without privileges.
