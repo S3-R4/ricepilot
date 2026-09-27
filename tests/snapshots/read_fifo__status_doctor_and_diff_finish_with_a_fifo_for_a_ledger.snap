@@ -1,0 +1,6 @@
+---
+source: tests/read_fifo.rs
+expression: shown
+---
+exit 2
+ricepilot: refusing: expected a regular file here, and this is a fifo. ricepilot reads only regular files: opening a fifo would wait for a writer for ever (<HOME>/.local/state/ricepilot/ledger.toml) [R4]

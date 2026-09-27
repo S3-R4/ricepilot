@@ -620,14 +620,9 @@ fn copy_file(
     times: &rustix::fs::Timestamps,
     stats: &mut CopyStats,
 ) -> Result<()> {
-    let (from_dirfd, from_name) = read::parent_dirfd(from)?;
-    let src = rustix::fs::openat(
-        &from_dirfd,
-        from_name.as_os_str(),
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )
-    .map_err(|e| io(format!("opening {}", from.display()), e))?;
+    // The caller saw a regular file; `open_regular` makes sure it still is
+    // one, so a fifo swapped in since cannot hang the copy.
+    let src = read::open_regular(from)?;
 
     let (to_dirfd, to_name) = read::parent_dirfd(to)?;
     let dst = rustix::fs::openat(

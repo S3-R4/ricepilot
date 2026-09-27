@@ -257,18 +257,68 @@ pub fn dev_and_fs_type(dir: &Path) -> Result<(u64, i64)> {
     Ok((st.st_dev as u64, sfs.f_type as i64))
 }
 
+/// Open a regular file for reading, and nothing else: not through a symlink
+/// at the final component, and not a fifo, a socket, a device or a
+/// directory.
+///
+/// A fifo planted where ricepilot expects a file would otherwise stop
+/// `doctor`, `diff` and `status` dead: an `O_RDONLY` open of a fifo waits
+/// for a writer, for ever. So the thing is looked at before it is opened —
+/// an open of a device can itself do something, and a fifo is refused
+/// without ever being opened — and opened `O_NONBLOCK` anyway, so a fifo
+/// swapped in between the look and the open cannot hang the open either;
+/// then the descriptor's own `fstat` must say "regular file". (`O_NONBLOCK`
+/// changes nothing about reading a regular file.)
+pub(super) fn open_regular(path: &Path) -> Result<OwnedFd> {
+    let (dirfd, name) = parent_dirfd(path)?;
+    // Absence and the like are left for the open to report, in the words it
+    // always has: callers match on `NotFound` from it.
+    if let Ok(st) = rustix::fs::statat(&dirfd, name.as_os_str(), AtFlags::SYMLINK_NOFOLLOW) {
+        if meta_of(&st).kind == Kind::Other {
+            return Err(not_regular(path, &st));
+        }
+    }
+    let fd = rustix::fs::openat(
+        &dirfd,
+        name.as_os_str(),
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|e| io(format!("opening {}", path.display()), e))?;
+    let st = rustix::fs::fstat(&fd).map_err(|e| io(format!("stat {}", path.display()), e))?;
+    if meta_of(&st).kind != Kind::File {
+        return Err(not_regular(path, &st));
+    }
+    Ok(fd)
+}
+
+// `st_mode` is `u32` here and not everywhere, as in [`meta_of`].
+#[allow(clippy::unnecessary_cast)]
+fn not_regular(path: &Path, st: &rustix::fs::Stat) -> Error {
+    let what = match st.st_mode as u32 & 0o170000 {
+        0o010000 => "a fifo",
+        0o140000 => "a socket",
+        0o020000 => "a character device",
+        0o060000 => "a block device",
+        0o040000 => "a directory",
+        0o120000 => "a symlink",
+        _ => "not a regular file",
+    };
+    Error::Refused {
+        rule: "R4",
+        path: path.to_path_buf(),
+        why: format!(
+            "expected a regular file here, and this is {what}. ricepilot reads only regular \
+             files: opening a fifo would wait for a writer for ever"
+        ),
+    }
+}
+
 /// Read a regular file whole, without following a symlink at the final
 /// component. Named `slurp` rather than the obvious thing because the ops
 /// boundary grep (`SAFETY.md` R2) bans that name everywhere else.
 pub fn slurp(path: &Path) -> Result<String> {
-    let (dirfd, name) = parent_dirfd(path)?;
-    let fd = rustix::fs::openat(
-        &dirfd,
-        name.as_os_str(),
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )
-    .map_err(|e| io(format!("opening {}", path.display()), e))?;
+    let fd = open_regular(path)?;
 
     let mut buf = String::new();
     std::fs::File::from(fd)
@@ -287,14 +337,7 @@ pub fn slurp(path: &Path) -> Result<String> {
 /// tree of any size in bounded memory, and so the bytes of a user's config
 /// never accumulate anywhere ricepilot could accidentally write them out.
 pub fn read_into(path: &Path, sink: &mut dyn FnMut(&[u8])) -> Result<()> {
-    let (dirfd, name) = parent_dirfd(path)?;
-    let fd = rustix::fs::openat(
-        &dirfd,
-        name.as_os_str(),
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )
-    .map_err(|e| io(format!("opening {}", path.display()), e))?;
+    let fd = open_regular(path)?;
 
     let mut file = std::fs::File::from(fd);
     let mut buf = vec![0u8; 64 * 1024];
