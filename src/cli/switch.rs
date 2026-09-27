@@ -56,6 +56,11 @@ pub struct Request {
     pub targets: Vec<Target>,
     /// Destinations ricepilot owns that this target state drops (D36).
     pub retire: Vec<PathBuf>,
+    /// The packages the target profile declares in `requires`, checked with
+    /// `pacman -Q` in phase A. Empty when there is nothing to check — which
+    /// includes rolling back to generation `0000`, which belongs to no
+    /// profile (D53).
+    pub requires: Vec<String>,
     /// The profile tree to record a blake3 manifest of, and the globs to
     /// exclude. `None` when there is no single tree to hash — rolling back to
     /// generation `0000`, whose links may point anywhere.
@@ -163,6 +168,7 @@ pub fn run_with(
     let attic_dev = read::dev_of_nearest_existing_ancestor(&paths.attic_dir())?;
     let ctx = plan::PlanContext::new(paths.home.clone(), attic.clone(), attic_dev)
         .with_sources(source_facts(&req.targets)?)
+        .missing_requires(crate::requires::missing(&req.requires)?)
         .retiring(req.retire.clone());
     let plan = plan::plan(&observed, &req.targets, &ctx);
 

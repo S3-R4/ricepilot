@@ -35,11 +35,14 @@ fn run(f: &Fixture, args: &[&str]) -> Run {
     }
 }
 
-fn caelestia_manifest(root: &Path) -> String {
+/// `requires` is empty unless a test asks for it: `plan` checks it with a real
+/// `pacman -Q`, which CI does not have, and the plan snapshots here are about
+/// shapes, not packages. `tests/requires.rs` covers the check.
+fn caelestia_manifest(root: &Path, requires: &str) -> String {
     format!(
         r#"name = "caelestia"
 root = "{}"
-requires = ["hyprland", "foot"]
+requires = [{requires}]
 hypr_dialect = "conf"
 volatile = ["**/fish_variables", "shell.json"]
 generated = ["hypr/scheme/current.conf"]
@@ -68,11 +71,15 @@ activation = "never"
 
 /// A fixture with one by-reference profile whose payload really exists.
 fn with_caelestia(case: &str) -> Fixture {
+    with_caelestia_requiring(case, "")
+}
+
+fn with_caelestia_requiring(case: &str, requires: &str) -> Fixture {
     let f = Fixture::new(case);
     let root = f.dir("rice/caelestia");
     f.dir("rice/caelestia/hypr");
     f.dir("rice/caelestia/foot");
-    f.profile("caelestia", &caelestia_manifest(&root));
+    f.profile("caelestia", &caelestia_manifest(&root, requires));
     f
 }
 
@@ -94,7 +101,7 @@ fn list_a_by_reference_profile() {
 
 #[test]
 fn show_a_profile() {
-    let f = with_caelestia("cli_show");
+    let f = with_caelestia_requiring("cli_show", r#""hyprland", "foot""#);
     let r = run(&f, &["show", "caelestia"]);
     assert_eq!(r.code, 0, "{}", r.stderr);
     insta::assert_snapshot!(r.stdout);

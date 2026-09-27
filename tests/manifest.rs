@@ -168,6 +168,8 @@ fn rejection_messages() {
         "name = \"p\"\nhypr_dialect = \"toml\"\n",
         "name = \"p\"\nroot = \"relative/thing\"\n",
         "name = \"p\"\nrequries = [\"typo\"]\n",
+        "name = \"p\"\nrequires = [\"--config=/etc/evil.conf\"]\n",
+        "name = \"p\"\nrequires = [\"hyprland>=0.55\"]\n",
     ] {
         out.push_str(&parse(text).unwrap_err().to_string());
         out.push('\n');

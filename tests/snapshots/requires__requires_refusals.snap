@@ -1,0 +1,12 @@
+---
+source: tests/requires.rs
+expression: s
+---
+a profile with requires, on a machine with no pacman
+  exit 2  refusing: this profile requires hyprland, foot, and ricepilot checks that with `pacman -Q`, which is not installed in any of /usr/bin, /usr/local/bin. it will not switch into a profile whose packages it could not check; on a machine without pacman, take `requires` out of the manifest (/usr/bin/pacman) [R4]
+
+pacman ran and did not say whether the package is installed
+  exit 2  refusing: `pacman -Q hyprland` exited 3 without saying whether it is installed. ricepilot will not guess, so the switch is not planned; run the same command yourself to see why (hyprland) [R4]
+
+pacman was ended by a signal
+  exit 2  refusing: `pacman -Q hyprland` was ended by a signal without saying whether it is installed. ricepilot will not guess, so the switch is not planned; run the same command yourself to see why (hyprland) [R4]

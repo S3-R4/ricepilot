@@ -138,8 +138,9 @@ the installer wrote. Refusing and telling the user is the correct outcome.
 5. Pre-flight refusals: unowned path; `st_dev` mismatch with the attic;
    denylisted destination; destination is a mountpoint or nested inside
    another destination; **the source the link would point at is missing or is
-   not a directory** ([DECISIONS.md](DECISIONS.md) D42); missing `requires`;
-   sandboxed verify-config failure.
+   not a directory** ([DECISIONS.md](DECISIONS.md) D42); missing `requires`
+   (one `pacman -Q` per package, before `plan()`, applied to `rollback` too —
+   D53); sandboxed verify-config failure.
 6. Print the plan. **Stop here unless `--commit`.**
 7. Probe `RENAME_EXCHANGE` (the probe writes two symlinks, so it happens after
    the commit gate and not at startup — D39).

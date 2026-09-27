@@ -327,8 +327,8 @@ pub struct PlanContext {
     /// `st_dev` of the attic. Compared against each destination's parent so
     /// an `EXDEV` failure is a pre-flight refusal, not a runtime surprise.
     pub attic_dev: u64,
-    /// Packages `pacman -Q` could not find (M5 fills this; M1 leaves it
-    /// empty).
+    /// Packages `pacman -Q` could not find, gathered by
+    /// [`crate::requires::missing`] before planning.
     pub missing_requires: Vec<String>,
     /// What is at each target's `src`. A target whose `src` has no fact here is
     /// not checked — M1's planner tests predate the check and supply none —
@@ -363,6 +363,12 @@ impl PlanContext {
     /// What is at each target's `src`, read by the caller.
     pub fn with_sources(mut self, sources: Vec<SourceFact>) -> Self {
         self.sources = sources;
+        self
+    }
+
+    /// The target profile's `requires` that are not installed.
+    pub fn missing_requires(mut self, missing: Vec<String>) -> Self {
+        self.missing_requires = missing;
         self
     }
 

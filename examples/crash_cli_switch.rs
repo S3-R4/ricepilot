@@ -55,6 +55,7 @@ fn main() {
         profile: "new".into(),
         targets,
         retire,
+        requires: profile.manifest.requires.clone(),
         manifest_of: Some((profile.root(&paths.home), profile.manifest.volatile.clone())),
     };
 

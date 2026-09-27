@@ -275,8 +275,11 @@ fn cmd_plan(paths: &paths::Paths, name: &str) -> Result<String> {
     let observed = crate::observe::observe(&dests, &ownership)?;
     let attic = paths.attic_dir();
     let attic_dev = crate::ops::read::dev_of_nearest_existing_ancestor(&attic)?;
+    // The same requires-check `switch` runs, so the printed plan is the one
+    // `--commit` would act on — including when it would decline.
     let ctx = crate::plan::PlanContext::new(paths.home.clone(), attic, attic_dev)
-        .with_sources(switch::source_facts(&targets)?);
+        .with_sources(switch::source_facts(&targets)?)
+        .missing_requires(crate::requires::missing(&profile.manifest.requires)?);
     let plan = crate::plan::plan(&observed, &targets, &ctx);
 
     Ok(render::plan(&profile.name, &observed, &plan))
@@ -396,6 +399,7 @@ fn cmd_switch(
         profile: name.to_string(),
         targets,
         retire,
+        requires: profile.manifest.requires.clone(),
         manifest_of: Some((root, profile.manifest.volatile.clone())),
     };
     switch::run(paths, &req, commit)
@@ -446,9 +450,17 @@ fn cmd_rollback(paths: &paths::Paths, commit: bool) -> Result<Output> {
     // Generation 0000 belongs to no profile ricepilot registered, so there is
     // no single tree to hash. Recording a manifest of "wherever those links
     // happen to point" would be a manifest of nothing in particular.
-    let manifest_of = paths::load(paths, &to.profile)
-        .ok()
+    let returning_to = paths::load(paths, &to.profile).ok();
+    let manifest_of = returning_to
+        .as_ref()
         .map(|p| (p.root(&paths.home), p.manifest.volatile.clone()));
+    // Going back into a profile is a switch into it, and gets the same
+    // requires-check (D53). A rollback it declines leaves the machine on the
+    // generation it is on now, which is one that worked well enough to roll
+    // back from; `rescue.sh` does not check, for the TTY case.
+    let requires = returning_to
+        .map(|p| p.manifest.requires)
+        .unwrap_or_default();
 
     let req = switch::Request {
         kind: switch::Kind::Rollback,
@@ -456,6 +468,7 @@ fn cmd_rollback(paths: &paths::Paths, commit: bool) -> Result<Output> {
         profile: to.profile.clone(),
         targets,
         retire,
+        requires,
         manifest_of,
     };
     switch::run(paths, &req, commit)

@@ -1,0 +1,14 @@
+---
+source: tests/requires.rs
+expression: undate(&r.stdout)
+---
+rollback: to generation 0001 (`new`)
+
+observed:
+  absent         <HOME>/.config/btop
+  owned link     <HOME>/.config/foot
+  owned link     <HOME>/.config/hypr
+
+declined. nothing has been changed.
+
+  [R4] this profile requires packages that are not installed: ricepilot-no-such-package-f3a1. ricepilot never installs anything; run: paru -S --needed ricepilot-no-such-package-f3a1

@@ -22,6 +22,7 @@ pub mod manifest;
 pub mod observe;
 pub mod ops;
 pub mod plan;
+pub mod requires;
 pub mod rescue;
 pub mod survey;
 pub mod verify;

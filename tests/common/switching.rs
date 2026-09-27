@@ -105,6 +105,18 @@ pub fn attach(case: &str) -> Machine {
 }
 
 impl Machine {
+    /// Give `profile` a `requires` list, by prepending it to the manifest: a
+    /// top-level key before the first table is always valid TOML.
+    pub fn require(&self, profile: &str, packages: &[&str]) {
+        #![allow(clippy::disallowed_methods)]
+        let path = self.f.path(&format!(
+            ".local/share/ricepilot/profiles/{profile}/profile.toml"
+        ));
+        let list: Vec<String> = packages.iter().map(|p| format!("{p:?}")).collect();
+        let body = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, format!("requires = [{}]\n{body}", list.join(", "))).unwrap();
+    }
+
     pub fn paths(&self) -> Paths {
         // `Paths::rooted_at` reads the override variables, which the helper
         // process and the test both set from `Fixture::env`.

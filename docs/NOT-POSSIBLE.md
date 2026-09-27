@@ -92,7 +92,9 @@ pre-flight refusal with both device numbers named.
 **Declined:** installing, removing or upgrading packages.
 
 A profile may declare `requires = [...]`. ricepilot checks with `pacman -Q`
-and prints the exact `paru -S --needed …` command. It never runs it. Package
+and prints the exact `paru -S --needed …` command. It never runs it. On a
+machine with no pacman, a profile that declares `requires` is refused rather
+than switched unchecked; take `requires` out of the manifest there. Package
 management is a root-privileged, system-wide, hard-to-reverse operation, and
 it is not what a dotfile switcher is for.
 

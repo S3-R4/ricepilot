@@ -514,14 +514,17 @@ fn collect(rx: Drained) -> (Vec<u8>, bool) {
 
 /// A pacman package name as makepkg defines one: ASCII alphanumerics and
 /// `@._+-`, not starting with `-` or `.`. Anything else is refused before
-/// pacman sees it.
-fn check_package_name(name: &str) -> Result<()> {
-    let ok = !name.is_empty()
+/// pacman sees it — and, earlier still, when the manifest is read.
+pub fn is_package_name(name: &str) -> bool {
+    !name.is_empty()
         && !name.starts_with(['-', '.'])
         && name
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "@._+-".contains(c));
-    if ok {
+            .all(|c| c.is_ascii_alphanumeric() || "@._+-".contains(c))
+}
+
+fn check_package_name(name: &str) -> Result<()> {
+    if is_package_name(name) {
         return Ok(());
     }
     Err(Error::Refused {

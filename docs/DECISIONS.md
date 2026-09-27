@@ -1069,3 +1069,52 @@ so "run verify-config on the real config" is not a mistake anyone can type.
 Neither has been run: `uwsm stop` because it ends the session, and
 verify-config because it has no sandbox yet. The argv `uwsm stop` will be
 run with is a constant, asserted in a test.
+
+## D53 — The requires-check: one `pacman -Q` per package, exit status only, and rollback too
+
+*M5.* `PlanContext::missing_requires` and `Refusal::MissingRequires` existed
+from M1 (D12); `src/requires.rs` now fills the list before `plan()` runs, in
+`plan`, in `switch`'s phase A and in `rollback`'s. Four choices.
+
+**One package per call, and only the exit status is read.** `pacman -Q a b c`
+would be one process instead of three, and its stdout lists what it found —
+but by the name of the package that satisfied the query, not the name asked
+for: `pacman -Q sh` answers `bash 5.3.9-2`, because bash *provides* sh. A
+check that compared names would report a satisfied requirement as missing
+and print a `paru -S` line for something already there. Exit 0 from a
+single-name query means "installed, or provided by something installed",
+which is the question. Profiles list a handful of packages, so the cost is a
+handful of millisecond processes. `pacman -T` would answer the provides
+question and version constraints too, but it is not what the allowlist
+names, and `requires` entries are package names, not constraints — the
+manifest now refuses anything else when it is read (`hyprland>=0.55`,
+`--config=…`), with the same rule `ops::exec` applies before spawning.
+
+**Exit 1 is "missing" only with pacman's own sentence.** pacman exits 1 both
+for a name it does not know and for failures such as an unreadable
+database. Under `LC_ALL=C` (D52) the first always says `was not found`, so
+exit 1 with that text is "missing"; any other exit, a signal, or exit 1
+without it is a refusal naming the command to run by hand. Guessing
+"missing" would have been the safe direction for the switch, but the
+refusal would then send the user to install a package they already have.
+
+**No pacman, but `requires` declared: refuse.** The alternative — skip the
+check and switch — makes the pre-flight incomplete without saying so, and
+R4 says a mutation is preceded by a *complete* pre-flight. The refusal says
+what to do on a machine without pacman: take `requires` out of the
+manifest. A profile with no `requires` never looks for pacman at all, which
+is also why every existing CLI test fixture now declares none: they are
+about shapes, not packages, and CI has no pacman. `tests/requires.rs`
+covers the check against the real pacman and skips, saying so, without one;
+the two refusals only a pacman-less or broken machine reaches are
+snapshotted directly.
+
+**`rollback` checks the profile it returns to.** Going back into a profile is
+a switch into it, through the same code path (DESIGN §6), and a session
+whose compositor is not installed is broken regardless of which command
+linked it. A declined rollback leaves the machine on the generation it is on
+— one that worked well enough to roll back *from* — and prints the `paru`
+line. Rolling back to generation `0000`, which belongs to no profile, checks
+nothing. `rescue.sh` checks nothing either, deliberately: it is for a TTY
+where the session has already failed to start, and it must not depend on
+pacman any more than on ricepilot.

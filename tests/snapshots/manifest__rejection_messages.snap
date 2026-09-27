@@ -9,3 +9,5 @@ profile `p`: `~/.config/fuzzel` is kind = generated and must set activation = "n
 profile `p`: `hypr_dialect = "toml"` must be "conf" or "lua"
 profile `p`: `root = relative/thing` must be absolute or start with `~`
 profile `<unparsed>`: unknown field `requries`, expected one of `name`, `root`, `requires`, `hypr_dialect`, `path`, `volatile`, `generated`
+profile `p`: `requires` entry "--config=/etc/evil.conf" is not a package name: ASCII letters, digits and `@._+-`, not starting with `-` or `.`
+profile `p`: `requires` entry "hyprland>=0.55" is not a package name: ASCII letters, digits and `@._+-`, not starting with `-` or `.`

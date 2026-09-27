@@ -172,6 +172,21 @@ fn validate(m: &Manifest) -> Result<()> {
         }
     }
 
+    // Checked here as well as in `ops::exec`, so a bad entry is a manifest
+    // refusal naming the profile when it is read, not a surprise at switch
+    // time — and so nothing that looks like a pacman option is ever one.
+    for r in &m.requires {
+        if !crate::ops::exec::is_package_name(r) {
+            return Err(invalid(
+                &m.name,
+                format!(
+                    "`requires` entry {r:?} is not a package name: ASCII letters, digits and \
+                     `@._+-`, not starting with `-` or `.`"
+                ),
+            ));
+        }
+    }
+
     let mut seen: Vec<&Path> = Vec::new();
     for p in &m.paths {
         if !p.dest.starts_with("/") && !p.dest.starts_with("~") {
