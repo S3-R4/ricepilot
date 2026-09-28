@@ -143,6 +143,7 @@ pub fn diagnose(look: &dyn Look, at: &Where) -> Report {
     let before = previous_generation(look, p, generation.as_ref());
     if let Some(l) = &ledger {
         owned_links(look, p, l, &profiles, before.as_ref(), &mut r);
+        restored_unrecorded(look, l, before.as_ref(), &mut r);
         manifests_agree_with_ledger(p, l, &profiles, &mut r);
     }
     adopted_then_emptied(look, p, ledger.as_ref(), &profiles, &mut r);
@@ -488,6 +489,52 @@ fn previous_generation(
     look.slurp(&path)
         .and_then(|t| crate::generations::parse(&t, &path, id))
         .ok()
+}
+
+/// Links `rescue.sh` re-created where the ledger has no row: a destination
+/// the current generation retired, which the generation before had a link
+/// at, and which holds exactly that link again (D81). Every `rollback`
+/// refuses such a link as foreign, so the RECOVERY.md way back — set aside,
+/// then roll back — needs it named along with the ledger's own.
+fn restored_unrecorded(
+    look: &dyn Look,
+    ledger: &crate::ledger::Ledger,
+    before: Option<&crate::generations::Generation>,
+    r: &mut Report,
+) {
+    let Some(g) = before else { return };
+    for ge in &g.entries {
+        let Some(target) = &ge.target else { continue };
+        if ledger.entries.iter().any(|e| e.dest == ge.dest) {
+            continue;
+        }
+        let is_that_link = matches!(look.lstat_or_absent(&ge.dest), Ok(Some(m)) if m.kind == Kind::Symlink)
+            && look.readlink(&ge.dest).is_ok_and(|t| &t == target);
+        if !is_that_link {
+            continue;
+        }
+        r.problems.push(Finding {
+            path: ge.dest.clone(),
+            what: "is a link ricepilot has no record of, where the generation before had it".into(),
+            rule: "SAFETY.md, the ownership predicate (fact 3: the ledger must record it)".into(),
+            detail: vec![
+                format!("it points at\n  {}", target.display()),
+                format!(
+                    "generation {:04}, the one `rescue.sh` restores, had exactly this link;\n\
+                     the current generation had none, and the ledger has no row for it.\n\
+                     most likely the script put it back. every switch and rollback refuses\n\
+                     it until it is set aside and the rollback links it again.",
+                    g.id
+                ),
+            ],
+            run: vec![
+                "# set it aside (nothing is lost); the rollback links it again".into(),
+                format!("mv -nT {} {}", sh(&ge.dest), sh(&set_aside(look, &ge.dest))),
+                "ricepilot rollback".into(),
+                "ricepilot rollback --commit".into(),
+            ],
+        });
+    }
 }
 
 /// Are the links the ledger records still the links it recorded?

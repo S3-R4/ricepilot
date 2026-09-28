@@ -2842,6 +2842,14 @@ tell the rescue's work apart from anyone else's:
   one (`rescue::parked_rel` inside `attic/rescue-NNNN/`), so the claim is
   checked, not guessed. A link that is simply gone keeps the old advice.
 
+* a link at a destination the ledger has **no** row for, which that
+  generation had exactly this link at, is a finding of its own with the
+  same commands. This is the case where the current generation retired the
+  destination: caelestia → bare retires four links, and `rescue.sh` puts
+  them back. Such a link used to go unnamed, so the RECOVERY.md procedure
+  stopped at a `rollback` that refused it as foreign. The acceptance run
+  hit that under all three shells.
+
 Anything else keeps the generic advice. doctor is still read-only by
 construction (D57): the generation is read through `Look`, and the one new
 item it names, `rescue::parked_rel`, is pure.
@@ -2852,4 +2860,5 @@ requires that it never prints `switch new --commit`, then does exactly the
 moves it printed and `rollback --commit`. It then requires the machine to
 be on generation 0000's links and doctor to exit 0. The retargeted-link
 test now points its link somewhere no generation had, so it keeps covering
-the generic case.
+the generic case. `after_rescue_sh_a_retired_link_it_restored_is_named_too`
+does the same after a switch that retired a destination.

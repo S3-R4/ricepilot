@@ -264,6 +264,57 @@ fn after_rescue_sh_doctor_advises_the_rollback_and_it_works() {
     assert_eq!(again.code, 0, "{}", again.stdout);
 }
 
+/// The same after a switch that *retired* a destination: `rescue.sh` puts
+/// the older generation's link back at a path the ledger no longer has a
+/// row for, and every rollback refuses it as foreign. doctor names it too,
+/// so the printed way back is complete (D81). The acceptance run found the
+/// gap: caelestia -> bare retires four links.
+#[test]
+fn after_rescue_sh_a_retired_link_it_restored_is_named_too() {
+    let m = machine("after-rescue-retired");
+    // new -> old retires btop.
+    let s = run(&m.f, &["switch", "old", "--commit"]);
+    assert_eq!(s.code, 0, "{}", s.stderr);
+    assert_eq!(m.live(), m.all_old());
+    let out = common::sh(&m.f.state().join("rescue.sh")).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(m.live(), m.all_new(), "rescue.sh restored generation 0001");
+
+    let r = doctor(&m.f);
+    unhealthy(&r);
+    insta::assert_snapshot!(r.stdout);
+    assert!(r.stdout.contains("<HOME>/.config/btop"), "{}", r.stdout);
+    assert!(
+        !r.stdout.contains("ricepilot switch old --commit"),
+        "{}",
+        r.stdout
+    );
+
+    for line in r
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("mv -nT "))
+    {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        let home = m.f.home.display().to_string();
+        std::fs::rename(
+            parts[2].replace("<HOME>", &home),
+            parts[3].replace("<HOME>", &home),
+        )
+        .unwrap();
+    }
+    let back = run(&m.f, &["rollback", "--commit"]);
+    assert_eq!(back.code, 0, "{}\n{}", back.stdout, back.stderr);
+    assert_eq!(m.live(), m.all_new());
+    let again = doctor(&m.f);
+    assert_eq!(again.code, 0, "{}", again.stdout);
+}
+
 /// A `.set-aside` left by an earlier round (RECOVERY.md step 5 makes one per
 /// path) is not overwritten by the next: the printed name skips past it, and
 /// the move is `mv -nT` in case the name is taken again by paste time (D70).
