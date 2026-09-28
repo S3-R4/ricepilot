@@ -255,7 +255,8 @@ pub fn run_with(
     // manifest claims, and the next `switch` would retire it (D51).
     let manifest_path = paths.manifest_path(&a.profile);
     let updated = declare_path(&read::slurp(&manifest_path)?, &a, &paths.home)?;
-    mutate::write_atomic(&manifest_path, updated.as_bytes())?;
+    // The user's file keeps its permission bits (D80).
+    mutate::write_atomic_keeping_mode(&manifest_path, updated.as_bytes())?;
 
     // ---- Steps 5 onward. From here a crash is `recover`'s problem. ----
     mutate::make_dirs(&paths.state)?;
@@ -305,6 +306,9 @@ pub fn run_with(
     led.record(std::slice::from_ref(&a.dest), &a.profile)?;
     ledger::save(&paths.ledger_path(), &led)?;
 
+    // What adopt wrote into the profile is ricepilot's write, not drift (D80).
+    rerecord_adopted(paths, &a.profile, &a.new_target, &id)?;
+
     let back_to = generations::load(&paths.state, new_id - 1)?;
     let script = rescue::regenerate(&paths.state, &back_to)?;
 
@@ -314,6 +318,34 @@ pub fn run_with(
         text: render::adopt_done(&a, stats.as_ref(), new_id, &script),
         code: ExitCode::Ok,
     })
+}
+
+/// Keep the profile's recorded tree manifest current for what `adopt`
+/// itself wrote into the profile — the copy at `new_target` and the
+/// `[[path]]` appended to `profile.toml` — and for nothing else (D80). Also
+/// run by a `recover` that finishes an adopt (D77).
+pub fn rerecord_adopted(
+    paths: &Paths,
+    profile: &str,
+    new_target: &std::path::Path,
+    id: &str,
+) -> Result<Option<PathBuf>> {
+    let p = super::paths::load(paths, profile)?;
+    let root = p.root(&paths.home);
+    let rels: Vec<String> = [new_target.to_path_buf(), paths.manifest_path(profile)]
+        .iter()
+        .filter_map(|x| x.strip_prefix(&root).ok())
+        .map(|r| r.to_string_lossy().into_owned())
+        .filter(|r| !r.is_empty())
+        .collect();
+    verify::rerecord_paths(
+        &paths.state,
+        profile,
+        &root,
+        &p.manifest.volatile,
+        &rels,
+        id,
+    )
 }
 
 /// Append a `[[path]]` block for this adoption to a profile's manifest.

@@ -2711,9 +2711,9 @@ the interrupted process would have done after its exchanges:
   before it is one `rollback` could not leave;
 * the ledger records the entries and the adopted destination for the
   journal's profile and forgets the retired ones;
-* the tree manifest is recorded when the profile loads and this is not an
-  adopt (`adopt` records none; generation `0000`'s pseudo-profile does not
-  load, as D41 already has it for `rollback`);
+* the tree manifest is recorded when the profile loads (generation
+  `0000`'s pseudo-profile does not, as D41 already has it for `rollback`);
+  for an adopt, only the adopt's own paths are, as `adopt` does (D80);
 * `rescue.sh` is regenerated to restore the generation before.
 
 Every step is idempotent — the same observation, the same rows, the same
@@ -2784,3 +2784,35 @@ message says so.
 Tested: `tests/cli_init.rs::verify_works_right_after_init_and_sees_a_one_byte_change`
 — `verify` is 0 straight after `init`, still 0 after the volatile file
 changes, and 6, naming the path, after a one-byte change elsewhere.
+
+## D80 — `adopt` keeps the recorded manifest current for what it wrote, and `profile.toml`'s mode
+
+*M5, found by the acceptance run (task F).* After `adopt ~/.config/kitty
+--into bare --commit`, `doctor` reported profile `bare` as changed: `kitty/`
+added, `profile.toml` changed, and `profile.toml (mode 0644 -> 0600)`. It
+said "ricepilot never writes into a profile; an app, a script or an editor
+did". That was false: `adopt` had made all three changes itself, copying the
+directory in and appending the `[[path]]` (D51) through `write_atomic`,
+which creates every file `0600`. The same drift made `switch bare --strict`
+refuse, and `verify bare` exit 6, straight after a clean adopt.
+
+* `profile.toml` is the user's file, so `adopt` now replaces it through
+  `mutate::write_atomic_keeping_mode`. That is the same temp + fsync +
+  rename + directory fsync, and the temp is `fchmod`ed to the permission
+  bits the file has now. ricepilot's own state files keep `write_atomic`'s
+  `0600`.
+* After the ledger, `adopt` re-records the profile's tree manifest **for its
+  own paths only**: the copy (`<leaf>` and everything below it) and
+  `profile.toml`. Every other row stays as recorded. Re-recording the whole
+  tree would quietly accept any unrelated drift since the last switch, and
+  recording nothing makes ricepilot's own write look like someone else's.
+  When nothing has been recorded for the profile yet, nothing is written,
+  since there is nothing to keep current. A `recover` that finishes an adopt
+  does the same (D77).
+
+Tested: `tests/cli_adopt.rs::an_adopt_is_not_reported_as_drift_and_keeps_the_manifest_mode`.
+It records a manifest by switching, adopts, and then requires the mode to
+still be `0644`, `verify` to be 0 and `switch --strict` to succeed. It also
+requires a later edit elsewhere in the profile to still be reported, with
+neither `profile.toml` nor the adopted copy listed. It fails without the
+change.

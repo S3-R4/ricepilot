@@ -251,6 +251,60 @@ fn after_an_adopt_the_profile_claims_the_path_and_a_switch_is_a_no_op() {
     );
 }
 
+/// What `adopt` writes into a profile is ricepilot's own write, not drift
+/// (D80): the recorded tree manifest is kept current for the copy and for
+/// `profile.toml`, and for nothing else, and `profile.toml` keeps its mode.
+/// The acceptance run found `doctor` blaming "an app, a script or an editor"
+/// for both, `switch --strict` refusing because of them, and the manifest
+/// turned from 0644 into 0600.
+#[test]
+fn an_adopt_is_not_reported_as_drift_and_keeps_the_manifest_mode() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let m = machine("no_drift");
+    // Give `mine` one destination of its own, and switch to it, so a tree
+    // manifest is recorded before the adopt.
+    let toml = m.profile.join("profile.toml");
+    let mut body = read::slurp(&toml).unwrap();
+    body.push_str(
+        "\n[[path]]\ndest = \"~/.config/waybar\"\nsrc = \"waybar\"\nkind = \"dir-link\"\nactivation = \"relogin\"\n",
+    );
+    m.f.file(".local/share/ricepilot/profiles/mine/profile.toml", &body);
+    std::fs::set_permissions(&toml, std::fs::Permissions::from_mode(0o644)).unwrap();
+    m.f.dir(".local/share/ricepilot/profiles/mine/waybar");
+    m.f.file(".local/share/ricepilot/profiles/mine/waybar/config", "{}\n");
+    let r = run(&m.f, &["switch", "mine", "--commit"], None);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    assert_eq!(run(&m.f, &["verify", "mine"], None).code, 0);
+
+    let r = run(
+        &m.f,
+        &["adopt", "~/.config/hypr", "--into", "mine", "--commit"],
+        Some("y"),
+    );
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    assert_eq!(
+        read::lstat(&toml).unwrap().unwrap().mode & 0o7777,
+        0o644,
+        "adopt changed the mode of profile.toml"
+    );
+    let v = run(&m.f, &["verify", "mine"], None);
+    assert_eq!(v.code, 0, "the adopt was reported as drift:\n{}", v.stdout);
+    let strict = run(&m.f, &["switch", "mine", "--commit", "--strict"], None);
+    assert_eq!(strict.code, 0, "{}\n{}", strict.stdout, strict.stderr);
+
+    // Only the adopt's own paths were re-recorded: a change elsewhere in the
+    // profile is still drift.
+    m.f.file(
+        ".local/share/ricepilot/profiles/mine/waybar/config",
+        "{ }\n",
+    );
+    let v = run(&m.f, &["verify", "mine"], None);
+    assert_eq!(v.code, 6, "{}", v.stdout);
+    assert!(v.stdout.contains("waybar/config"), "{}", v.stdout);
+    assert!(!v.stdout.contains("profile.toml"), "{}", v.stdout);
+    assert!(!v.stdout.contains("hypr/"), "{}", v.stdout);
+}
+
 /// Where the displaced directory landed. The attic directory is named after
 /// the operation's id, which is a timestamp, so the test finds it rather
 /// than predicting it.

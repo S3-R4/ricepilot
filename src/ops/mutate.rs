@@ -337,6 +337,23 @@ pub fn fsync_dir(dir: &Path) -> Result<()> {
 /// produce, and the no-delete rule means it is never something it can tidy
 /// away either, so it must not create one.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_atomic_as(path, bytes, None)
+}
+
+/// [`write_atomic`] replacing a file that is not ricepilot's own — a
+/// profile's `profile.toml`, which `adopt` appends a `[[path]]` to — with the
+/// permission bits the file has now, rather than `0600` (D80). A file that
+/// is not there, or is not a regular file, gets `0600` as `write_atomic`
+/// gives.
+pub fn write_atomic_keeping_mode(path: &Path, bytes: &[u8]) -> Result<()> {
+    let keep = match read::lstat(path)? {
+        Some(m) if m.kind == Kind::File => Some(m.mode & 0o7777),
+        _ => None,
+    };
+    write_atomic_as(path, bytes, keep)
+}
+
+fn write_atomic_as(path: &Path, bytes: &[u8], mode: Option<u32>) -> Result<()> {
     let parent = path.parent().ok_or_else(|| Error::Refused {
         rule: "R4",
         path: path.to_path_buf(),
@@ -372,6 +389,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         why: "no free temp name beside this file after 1000 attempts".into(),
     })?;
 
+    if let Some(m) = mode {
+        rustix::fs::fchmod(&fd, Mode::from_bits_truncate(m))
+            .map_err(|e| io(format!("setting the mode of the temp file for {stem}"), e))?;
+    }
     let mut file = std::fs::File::from(fd);
     file.write_all(bytes).map_err(|source| Error::Io {
         context: format!("writing {}", path.display()),

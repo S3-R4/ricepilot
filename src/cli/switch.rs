@@ -501,8 +501,9 @@ pub struct Settled {
 ///   before it would be one `rollback` could not leave.
 /// * The ledger: the entries and the adopted destination are the profile's,
 ///   the retired ones are forgotten.
-/// * The tree manifest, when the profile loads and this is not an adopt
-///   (`adopt` records none).
+/// * The tree manifest, when the profile loads: the whole tree after a
+///   switch; after an adopt, only what the adopt wrote into the profile
+///   (D80).
 /// * `rescue.sh`, restoring the generation before.
 ///
 /// The journal is still in place while this runs; `recover` retires it
@@ -557,6 +558,12 @@ pub fn settle_recovered(paths: &Paths, j: &Journal) -> Result<Settled> {
     ledger::save(&ledger_file, &led)?;
 
     let mut manifest = None;
+    // An adopt's own writes into the profile, when the profile loads (D80).
+    if super::paths::load(paths, &j.profile).is_ok() {
+        for a in &j.adopt {
+            manifest = super::adopt::rerecord_adopted(paths, &j.profile, &a.new_target, &j.id)?;
+        }
+    }
     if j.adopt.is_empty() {
         if let Ok(profile) = super::paths::load(paths, &j.profile) {
             let root = profile.root(&paths.home);

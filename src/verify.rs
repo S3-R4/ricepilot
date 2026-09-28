@@ -468,6 +468,47 @@ pub fn save(path: &Path, m: &TreeManifest) -> Result<()> {
 /// every profile until a switch records one, and is a thing to say plainly
 /// rather than a comparison against an empty manifest that would report the
 /// whole tree as added.
+/// Bring the recorded manifest of `profile` up to date for `rels` alone —
+/// each a path relative to `root`, together with everything below it — and
+/// leave every other row as it was recorded (D80).
+///
+/// For `adopt`, which writes into a profile itself: the copy of the adopted
+/// directory and the `[[path]]` it appends to `profile.toml`. Re-recording
+/// the whole tree there would quietly bless whatever else had drifted since
+/// the last switch; recording nothing would have `verify`, `diff`, `doctor`
+/// and `switch --strict` report ricepilot's own write as drift that "an app,
+/// a script or an editor" made. `None` when nothing is recorded yet: there
+/// is no record to keep current, and the next switch makes one.
+pub fn rerecord_paths(
+    state: &Path,
+    profile: &str,
+    root: &Path,
+    volatile: &[String],
+    rels: &[String],
+    created: &str,
+) -> Result<Option<PathBuf>> {
+    let p = manifest_path(state, profile);
+    let Some(mut recorded) = load(&p)? else {
+        return Ok(None);
+    };
+    let now = build(profile, root, volatile, created)?;
+    let mine = |path: &str| {
+        rels.iter().any(|r| {
+            path == r
+                || path
+                    .strip_prefix(r.as_str())
+                    .is_some_and(|rest| rest.starts_with('/'))
+        })
+    };
+    recorded.entries.retain(|e| !mine(&e.path));
+    recorded
+        .entries
+        .extend(now.entries.into_iter().filter(|e| mine(&e.path)));
+    recorded.entries.sort_by(|a, b| a.path.cmp(&b.path));
+    save(&p, &recorded)?;
+    Ok(Some(p))
+}
+
 pub fn load(path: &Path) -> Result<Option<TreeManifest>> {
     load_via(&Live, path)
 }
