@@ -1903,7 +1903,8 @@ not parse — keeps the entry, and the report names the path. That includes
 a link at the place `adopt` put a directory: nothing ever sends a link
 there (a staged link has its own `.staged` place), and its target string is
 in no record. So does an entry whose name is not one ricepilot gives (a
-switch id, perhaps with `-N`, or `rescue-NNNN`), an entry that is not a
+switch id, perhaps with `-N`, or `rescue-NNNN`; a verify copy may carry one
+`-M` more, D78), an entry that is not a
 directory, and anything the lookups below find.
 
 **A directory `adopt` displaced is kept unless it is provably held
@@ -2729,3 +2730,25 @@ the ledger to own every destination and the current generation to be
 `new`'s. `tests/crash_adopt_command.rs` requires a finished adopt's link to
 be in the ledger with a generation. The acceptance run repeats it on the
 synthetic rice at every `renameat`, `renameat2`, `symlinkat` and `fsync`.
+
+## D78 — `gc` recognises the verify-copy names the sandbox itself gives
+
+*M5, found by the acceptance run (task F).* `gc` itemised three of
+ricepilot's own verify-config copies — `20260928T170239Z-1-1`, `-1-2`,
+`-2-1` — as KEPT, saying each "is not a name ricepilot gives an entry
+here". It is: `journal::unique_id` makes a switch id `<stamp>-N` when
+`<stamp>` is taken in the journal or the attic (D40), and the verify-config
+sandbox makes its copy `state/verify/<id>-M` when `<id>` is taken *there*
+(`sandbox::free_name`). The two namespaces are separate — a dry run writes a
+verify copy and no journal — so a run of switches in the same second
+produces `<stamp>-N-M`. `gc`'s grammar allowed one suffix, so those copies
+were kept for ever with a reason that was false (R7).
+
+A verify entry's name is now a switch id with at most one more numeric
+`-M`; the attic's grammar is unchanged, because nothing names an attic entry
+that way, and a name with a third suffix, an empty or non-numeric part is
+still not ricepilot's. Nothing else about a verify copy's checks changes: it
+must still hold only `root/` and `run/`, be on the area's mount and be
+typed back. Tested by the name grammar's unit test and by
+`tests/gc.rs::a_verify_copy_with_the_sandbox_suffix_is_a_candidate`, which
+fails without the change.

@@ -610,6 +610,24 @@ fn a_verify_copy_is_removed_when_named() {
     assert!(read::lstat_or_absent(&v).unwrap().is_none());
 }
 
+/// A verify copy the sandbox named `<id>-M` because `<id>` — itself a
+/// switch id with its own `-N` — was taken is ricepilot's too (D78). The
+/// acceptance run found such copies listed as "not a name ricepilot gives"
+/// and kept for ever.
+#[test]
+fn a_verify_copy_with_the_sandbox_suffix_is_a_candidate() {
+    let f = Fixture::new_in("gc", "verify_suffixed");
+    let v = verify_copy(&f, "20260101T000000Z-1-2");
+    let r = run(&f, &["gc", "--commit"], Some("20260101T000000Z-1-2\n"));
+    ok(&r);
+    assert!(
+        !r.stdout.contains("is not a name ricepilot gives"),
+        "{}",
+        r.stdout
+    );
+    assert!(read::lstat_or_absent(&v).unwrap().is_none(), "{}", r.stdout);
+}
+
 /// A crash part way through a removal leaves the tombstone half-emptied in
 /// `state/gc/` (D62). Built here by hand — the state is a rename followed by
 /// some of the removals — and then listed as an interrupted removal, and

@@ -852,11 +852,18 @@ fn same_or_raced(dir: &DirFd, seen: &Found) -> Result<()> {
 
 /// The names ricepilot gives: a switch id (`YYYYMMDDTHHMMSSZ`, perhaps with
 /// `-N`, D40) for an attic or verify entry, `rescue-NNNN` for a rescue attic,
-/// and `<area>-<name>` in `state/gc/`.
+/// and `<area>-<name>` in `state/gc/`. A verify copy may carry one `-M` more:
+/// the sandbox names it `<id>-M` when `<id>` is taken there, and the id may
+/// already have its own `-N` (D78).
 pub fn name_is_ours(area: Area, name: &str) -> bool {
     match area {
         Area::Attic => is_id(name) || rescue_generation(name).is_some(),
-        Area::Verify => is_id(name),
+        Area::Verify => {
+            is_id(name)
+                || name
+                    .rsplit_once('-')
+                    .is_some_and(|(id, m)| is_numeric_suffix(m) && is_id(id))
+        }
         Area::Interrupted => match name.split_once('-') {
             Some(("attic", n)) => name_is_ours(Area::Attic, n),
             Some(("verify", n)) => name_is_ours(Area::Verify, n),
@@ -875,10 +882,12 @@ fn is_id(name: &str) -> bool {
     stamp
         && match &name[16..] {
             "" => true,
-            rest => rest
-                .strip_prefix('-')
-                .is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit())),
+            rest => rest.strip_prefix('-').is_some_and(is_numeric_suffix),
         }
+}
+
+fn is_numeric_suffix(n: &str) -> bool {
+    !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit())
 }
 
 fn rescue_generation(name: &str) -> Option<u32> {
@@ -1250,6 +1259,23 @@ mod tests {
             assert!(!name_is_ours(Area::Attic, bad), "{bad:?}");
         }
         assert!(!name_is_ours(Area::Verify, "rescue-0003"));
+        // The sandbox's own `-M` on top of a switch id's `-N` (D78): a verify
+        // copy only, one level only.
+        for ok in ["20260927T101500Z-1-1", "20260927T101500Z-3-12"] {
+            assert!(name_is_ours(Area::Verify, ok), "{ok}");
+            assert!(name_is_ours(Area::Interrupted, &format!("verify-{ok}")));
+            assert!(!name_is_ours(Area::Attic, ok), "{ok}");
+            assert!(!name_is_ours(Area::Interrupted, &format!("attic-{ok}")));
+        }
+        for bad in [
+            "20260927T101500Z-1-2-3",
+            "20260927T101500Z-1-",
+            "20260927T101500Z--1",
+            "20260927T101500Z-x-1",
+            "20260927T101500Z-1-x",
+        ] {
+            assert!(!name_is_ours(Area::Verify, bad), "{bad:?}");
+        }
         assert!(!name_is_ours(Area::Interrupted, "verify-rescue-0003"));
         assert!(!name_is_ours(Area::Interrupted, "20260927T101500Z"));
         assert!(!name_is_ours(Area::Interrupted, "gc-20260927T101500Z"));
