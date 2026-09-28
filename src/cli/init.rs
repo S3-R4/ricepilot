@@ -236,7 +236,7 @@ pub fn run(
     let manifest = render_manifest(&i, &adopt, &volatile, &paths.home);
     // Parsed back before it is written: a manifest ricepilot cannot read is
     // never one it creates.
-    crate::manifest::parse(&manifest)?;
+    let parsed = crate::manifest::parse(&manifest)?;
 
     let id = crate::journal::unique_id(
         &paths.state,
@@ -259,8 +259,16 @@ pub fn run(
     led.record(&dests, &i.name)?;
     ledger::save(&paths.ledger_path(), &led)?;
 
+    // ---- The tree manifest, so `verify` has something to compare against
+    // from the moment the rice is registered, not only after the first switch
+    // into it — which, for the rice the machine is already on, may never come
+    // (D79). Hashed from the live tree, `volatile` left out, like a switch's.
+    let tree = crate::verify::build(&i.name, &i.root, &parsed.volatile, &id)?;
+    let recorded = crate::verify::manifest_path(&paths.state, &i.name);
+    crate::verify::save(&recorded, &tree)?;
+
     Ok(Output {
-        text: render::init_done(&i, &dests, &volatile, &stats),
+        text: render::init_done(&i, &dests, &volatile, &stats, &recorded),
         code: ExitCode::Ok,
     })
 }

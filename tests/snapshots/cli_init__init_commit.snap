@@ -61,7 +61,10 @@ a baseline copy of the tree is at:
   reflinked: <depends on the filesystem>
 it is a copy. your tree is untouched and still where it was.
 
+a blake3 manifest of the tree was recorded at:
+  <HOME>/.local/state/ricepilot/manifests/caelestia.toml
+`ricepilot verify caelestia` compares the tree against it.
+
 next:
   ricepilot status                  what ricepilot now believes it owns
-  ricepilot verify caelestia          compare the tree against nothing yet — a manifest
-                                    is recorded the first time you switch to it
+  ricepilot verify caelestia          compare the tree against the manifest just recorded

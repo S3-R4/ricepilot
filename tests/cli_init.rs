@@ -266,6 +266,44 @@ fn the_adopted_links_are_owned_afterwards() {
     );
 }
 
+/// `verify` works from the moment a rice is registered (D79). Before, the
+/// rice the machine was already on had no tree manifest until something
+/// switched *into* it, so `verify caelestia` refused after `init` and after
+/// a rollback to generation 0000 alike — the acceptance run's last check.
+#[test]
+fn verify_works_right_after_init_and_sees_a_one_byte_change() {
+    let m = machine("verify");
+    let r = run(
+        &m.f,
+        &["init", "--root", &m.root.display().to_string(), "--commit"],
+        &["y", "y", "y"],
+    );
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    assert!(
+        read::lstat_or_absent(&m.f.state().join("manifests/caelestia.toml"))
+            .unwrap()
+            .is_some(),
+        "init recorded no tree manifest"
+    );
+
+    let clean = run(&m.f, &["verify", "caelestia"], &[]);
+    assert_eq!(clean.code, 0, "{}\n{}", clean.stdout, clean.stderr);
+
+    // The volatile `.secret` is left out; anything else is not.
+    m.f.file("rice/caelestia/.secret", "rotated\n");
+    let volatile_only = run(&m.f, &["verify", "caelestia"], &[]);
+    assert_eq!(volatile_only.code, 0, "{}", volatile_only.stdout);
+    m.f.file("rice/caelestia/foot/foot.ini", "font=x\n");
+    let drift = run(&m.f, &["verify", "caelestia"], &[]);
+    assert_eq!(
+        drift.code,
+        ricepilot::error::ExitCode::Drift as i32,
+        "{}",
+        drift.stdout
+    );
+    assert!(drift.stdout.contains("foot/foot.ini"), "{}", drift.stdout);
+}
+
 #[test]
 fn every_init_refusal() {
     let m = machine("refusals");

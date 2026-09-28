@@ -105,7 +105,7 @@ directory in `~/.config` into a link into a profile.
 
 | command | what it does | changes anything? |
 |---|---|---|
-| `init --root <dir> [--name <n>] [--commit]` | registers an existing rice by reference, records the links already pointing into it (one question per link), and takes a baseline copy into `state/baseline/<name>/` | with `--commit`: the profile's manifest, the ledger, the baseline. Nothing in `~/.config` |
+| `init --root <dir> [--name <n>] [--commit]` | registers an existing rice by reference, records the links already pointing into it (one question per link), and takes a baseline copy into `state/baseline/<name>/` | with `--commit`: the profile's manifest, the ledger, the baseline, the tree's blake3 manifest. Nothing in `~/.config` |
 | `status` | home, data and state directories; registered profiles; the links ricepilot owns; the current generation | no |
 | `doctor` | read-only health report: problems first, then hazards, each with the exact commands for you to run | no — it runs none of them (D57) |
 | `list` | registered profiles | no |
@@ -117,7 +117,7 @@ directory in `~/.config` into a link into a profile.
 | `rollback [--commit] [--relogin]` | re-applies the previous generation through the same code path as `switch` | with `--commit` |
 | `recover [--commit]` | finishes or undoes an operation that was interrupted, decided by looking at every destination | with `--commit` |
 | `rescue` | prints where `rescue.sh` is and how to run it | no |
-| `verify <profile>` | compares a profile's tree with the blake3 manifest recorded when ricepilot last switched to (or captured) it; `volatile` paths are left out | no |
+| `verify <profile>` | compares a profile's tree with the blake3 manifest recorded when ricepilot last switched to, captured or `init`-registered it; `volatile` paths are left out | no |
 | `diff <profile>` | compares a profile with the live filesystem: its links, and its tree against what was recorded (D60) | no |
 | `gc [--commit]` | lists everything in the attic and the verify-config copies, and why each could go or is kept; with `--commit`, removes only the entries whose names you type back | with `--commit` and the typed name: the one irreversible command |
 
@@ -179,7 +179,7 @@ not log out; `uwsm stop` not installed is 2, and running and failing is 4.
 | `~/.local/state/ricepilot/ledger.toml` | the links ricepilot owns, each with its target and `(dev, ino)` |
 | `~/.local/state/ricepilot/generations/` | `NNNN.toml` per switch or rollback, and `current` |
 | `~/.local/state/ricepilot/journal/` | `current.toml` while an operation is in flight; `done-<id>.toml` after |
-| `~/.local/state/ricepilot/manifests/<name>.toml` | the blake3 manifest of a profile's tree, recorded at each switch into it and by `capture` |
+| `~/.local/state/ricepilot/manifests/<name>.toml` | the blake3 manifest of a profile's tree, recorded at each switch into it, by `capture` and by `init` |
 | `~/.local/state/ricepilot/attic/<id>/` | everything a switch, rollback or adopt displaced, at its original absolute path under that directory |
 | `~/.local/state/ricepilot/attic/rescue-NNNN/` | what `rescue.sh` displaced |
 | `~/.local/state/ricepilot/verify/<id>/` | verify-config scratch copies (D55) |

@@ -1825,9 +1825,10 @@ that was not seen; 4 takes precedence over 6 for that reason.
 **0 otherwise — including when nothing has been recorded yet.** Drift is
 defined against a record (D34); with none there is nothing to drift from.
 The report says the content was NOT compared and the last line says the
-answer is about the links alone. This is the state right after `init`,
-which records the ledger and no tree manifest, and a status that could
-never be 0 there would be one nobody reads. A script that needs the content
+answer is about the links alone. This was the state right after `init`
+until D79 made `init` record one; it is still the state of a profile made by
+hand and never switched to, and a status that could never be 0 there would
+be one nobody reads. A script that needs the content
 guarantee runs `verify`, which refuses (2) when nothing is recorded. A real
 directory whose comparison with its source could not be read does not
 change the status: its row already differs.
@@ -2752,3 +2753,34 @@ must still hold only `root/` and `run/`, be on the area's mount and be
 typed back. Tested by the name grammar's unit test and by
 `tests/gc.rs::a_verify_copy_with_the_sandbox_suffix_is_a_candidate`, which
 fails without the change.
+
+## D79 — `init` records the registered tree's blake3 manifest
+
+*M5, found by the acceptance run (task F).* The M5 gate ends
+`init --commit` → `switch bare --commit` → `rollback --commit` →
+`verify caelestia` clean. On the synthetic rice the last step refused (2):
+"no manifest has been recorded for `caelestia` yet". A tree manifest was
+recorded only by `capture` and by a switch *into* a profile. `init`
+registers the rice the machine is already on, so there is nothing to switch
+into (a `switch caelestia` right after `init` is "nothing to do", and a no-op
+records nothing). Rolling back to generation `0000` records none either
+(D41). So `verify caelestia` could not answer at any point of the gate, and
+`diff` and `doctor` said "not compared" about the one tree the user most
+needs checked.
+
+`init --commit` now hashes the tree it registers, after the ledger, with the
+`volatile` globs the user confirmed left out, and saves it to
+`state/manifests/<name>.toml`, exactly as a switch does. It writes only
+inside ricepilot's state directory, reads the tree it has just copied
+into the baseline, and prints where the manifest is. The "next:" hint no
+longer says `verify` compares against nothing.
+
+Consequence, stated rather than hidden: from `init` on, `doctor` and
+`diff` compare the registered tree, so an app that rewrites an in-tree file
+that is not declared `volatile` shows as drift from the first `doctor`,
+not only after the first switch. That is what `volatile` is for, and the
+message says so.
+
+Tested: `tests/cli_init.rs::verify_works_right_after_init_and_sees_a_one_byte_change`
+— `verify` is 0 straight after `init`, still 0 after the volatile file
+changes, and 6, naming the path, after a one-byte change elsewhere.

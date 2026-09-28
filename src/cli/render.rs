@@ -1297,6 +1297,7 @@ pub fn init_done(
     adopted: &[std::path::PathBuf],
     volatile: &[String],
     stats: &crate::ops::mutate::CopyStats,
+    recorded: &Path,
 ) -> String {
     let mut s = String::new();
     let _ = writeln!(s);
@@ -1351,6 +1352,14 @@ pub fn init_done(
         "it is a copy. your tree is untouched and still where it was."
     );
     let _ = writeln!(s);
+    let _ = writeln!(s, "a blake3 manifest of the tree was recorded at:");
+    let _ = writeln!(s, "  {}", recorded.display());
+    let _ = writeln!(
+        s,
+        "`ricepilot verify {}` compares the tree against it.",
+        i.name
+    );
+    let _ = writeln!(s);
     let _ = writeln!(s, "next:");
     let _ = writeln!(
         s,
@@ -1358,12 +1367,8 @@ pub fn init_done(
     );
     let _ = writeln!(
         s,
-        "  ricepilot verify {}          compare the tree against nothing yet — a manifest",
+        "  ricepilot verify {}          compare the tree against the manifest just recorded",
         i.name
-    );
-    let _ = writeln!(
-        s,
-        "                                    is recorded the first time you switch to it"
     );
     s
 }

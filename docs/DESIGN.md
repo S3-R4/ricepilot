@@ -26,7 +26,7 @@ a profile. Those are not omissions — they are the design (see
     generations/NNNN.toml   one per successful switch
     generations/current     pointer to the active generation
     journal/                write-ahead log of an in-flight switch
-    manifests/<name>.toml   blake3 manifest of a profile, recorded at switch
+    manifests/<name>.toml   blake3 manifest of a profile, recorded at switch, capture, init
     attic/<ts>/             displaced objects; only `gc` removes one (D61)
     attic/rescue-NNNN/      what rescue.sh displaced restoring generation NNNN
     verify/<ts>/            verify-config scratch copies (D55)
