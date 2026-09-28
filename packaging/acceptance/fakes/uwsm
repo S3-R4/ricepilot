@@ -1,0 +1,12 @@
+#!/bin/sh
+# FAKE uwsm for the acceptance sandbox. It never stops anything. It records
+# the argv and the environment ricepilot built for `uwsm stop` (D52/D58), so
+# the acceptance run can show exactly what the real one would have been given.
+{
+  echo "=== uwsm pid=$$ uid=$(id -u)"
+  for a in "$@"; do printf 'argv: %s\n' "$a"; done
+  env | sed 's/^/env: /'
+  echo "result: fake-stop"
+} >> /var/log/fakes/calls.log
+echo "fake uwsm: would have stopped the session; stopped nothing"
+exit 0

@@ -24,13 +24,16 @@ broken, go to [`docs/RECOVERY.md`](docs/RECOVERY.md).**
 Every command below is implemented and covered by the test suite, which runs
 entirely inside a sandbox under `target/fixtures/` and never touches a real
 home directory, the live session, `Hyprland`, `hyprctl` or `uwsm`. ricepilot
-has **never been run against a real `$HOME`**. The acceptance run — the
-whole dry-run → `--commit` path, `init`, `adopt`, `switch`, `rollback`,
-`doctor`, `diff`, `gc`, and `recover` after an injected crash, against a
-fake shaped like the target rice — is still to come, and will be done in a
-disposable sandbox (a container, a VM or a throwaway user), not on a machine
-anyone depends on. Until it has, treat ricepilot as untested on real
-systems.
+has **never been run against a real `$HOME`**. The sandbox acceptance run
+has been done. It covered the whole dry-run → `--commit` path (`init`,
+`adopt`, `capture`, `switch` with `--relogin` and `--strict`, `rollback`,
+`doctor`, `diff`, `gc`), and `recover` after a SIGKILL at every rename,
+symlink and fsync. It ran `rescue.sh` under dash, busybox sh and bash. It
+ran in a disposable Docker container against a synthetic rice shaped like
+the target one. Its results, including what it could not exercise (a real
+logout and login), are in [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md). The
+supervised run on a real machine has not happened yet. Until it has, treat
+ricepilot as untested on real systems.
 
 It is written for, and its facts were checked on, one machine: CachyOS (Arch)
 with Hyprland 0.55 started by uwsm 0.26 under SDDM, `/home` on btrfs, and the

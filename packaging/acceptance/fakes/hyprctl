@@ -1,0 +1,8 @@
+#!/bin/sh
+# FAKE hyprctl for the acceptance sandbox: records its argv and does nothing.
+{
+  echo "=== hyprctl pid=$$ uid=$(id -u)"
+  for a in "$@"; do printf 'argv: %s\n' "$a"; done
+} >> /var/log/fakes/calls.log
+echo "fake hyprctl: no compositor here" >&2
+exit 1

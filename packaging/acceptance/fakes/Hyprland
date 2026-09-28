@@ -1,0 +1,40 @@
+#!/bin/sh
+# FAKE Hyprland for the acceptance sandbox. It never starts a compositor.
+# It records how ricepilot called it, then plays `--verify-config`: it reads
+# the config it was given and flags any exec line that reached it (ricepilot
+# must have stripped them all, D55). ricepilot runs it with an empty
+# environment, so the log path is fixed.
+log=/var/log/fakes/calls.log
+{
+  echo "=== Hyprland pid=$$ uid=$(id -u)"
+  for a in "$@"; do printf 'argv: %s\n' "$a"; done
+  env | sed 's/^/env: /'
+} >> "$log"
+cfg=
+verify=no
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -c|--config) cfg=$2; shift ;;
+    --verify-config) verify=yes ;;
+  esac
+  shift
+done
+if [ "$verify" != yes ]; then
+  echo "fake Hyprland: refusing to start a compositor" >&2
+  echo "result: refused-start" >> "$log"
+  exit 1
+fi
+if [ -z "$cfg" ] || [ ! -f "$cfg" ]; then
+  echo "fake Hyprland: no config file given" >&2
+  echo "result: no-config" >> "$log"
+  exit 1
+fi
+echo "cfg: $cfg" >> "$log"
+if grep -Eq '^[[:space:]]*(exec|execr|exec-once|execr-once|exec-shutdown)[[:space:]]*=' "$cfg"; then
+  echo "EXEC-LINE-SURVIVED in $cfg" >> "$log"
+fi
+echo "======== Config parsing result:"
+echo
+echo "config ok"
+echo "result: ok" >> "$log"
+exit 0

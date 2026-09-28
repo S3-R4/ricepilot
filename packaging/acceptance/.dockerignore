@@ -1,0 +1,7 @@
+# The staged context (target/acceptance/ctx/, see run.sh) holds only the
+# archive and the harness files. These exclusions are a second line of
+# defence in case the image is ever built from the repository root.
+.git
+target
+agentprompt.md
+NEXT-AGENTS.md
