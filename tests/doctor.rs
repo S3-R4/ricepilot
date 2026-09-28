@@ -204,10 +204,64 @@ fn an_owned_link_an_installer_turned_into_a_directory() {
 #[test]
 fn an_owned_link_that_points_elsewhere() {
     let m = machine("retargeted");
-    m.f.link(".config/foot", &m.old_root.join("foot"));
+    // Somewhere no generation had it: the generic advice, not D81's.
+    m.f.link(".config/foot", &m.new_root.join("hypr"));
     let r = doctor(&m.f);
     unhealthy(&r);
     insta::assert_snapshot!(r.stdout);
+}
+
+/// After `rescue.sh` the restored links are not in the ledger. doctor used
+/// to advise `switch <the profile rescued from>`, which undoes the rescue.
+/// Where the generation before had a link, or had nothing, it now advises
+/// what RECOVERY.md step 5 says: set the link aside and roll back (D81).
+/// Following that advice to the letter leaves a healthy machine on the
+/// generation the script restored.
+#[test]
+fn after_rescue_sh_doctor_advises_the_rollback_and_it_works() {
+    let m = machine("after-rescue");
+    let script = m.f.state().join("rescue.sh");
+    let out = common::sh(&script).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(m.live(), m.all_old(), "rescue.sh restored generation 0000");
+
+    let r = doctor(&m.f);
+    unhealthy(&r);
+    insta::assert_snapshot!(r.stdout);
+    assert!(
+        !r.stdout.contains("ricepilot switch new --commit"),
+        "doctor advised undoing the rescue:\n{}",
+        r.stdout
+    );
+
+    // Do exactly what it printed, in order: the moves, then the rollback.
+    let run_lines: Vec<String> = r
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("mv -nT ") || l.starts_with("ricepilot rollback --commit"))
+        .map(str::to_string)
+        .collect();
+    for line in run_lines.iter().filter(|l| l.starts_with("mv ")) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        let from = PathBuf::from(parts[2].replace("<HOME>", &m.f.home.display().to_string()));
+        let to = PathBuf::from(parts[3].replace("<HOME>", &m.f.home.display().to_string()));
+        assert!(read::lstat_or_absent(&to).unwrap().is_none());
+        std::fs::rename(&from, &to).unwrap();
+    }
+    assert!(run_lines
+        .iter()
+        .any(|l| l.starts_with("ricepilot rollback --commit")));
+    let back = run(&m.f, &["rollback", "--commit"]);
+    assert_eq!(back.code, 0, "{}\n{}", back.stdout, back.stderr);
+    assert_eq!(m.live(), m.all_old());
+
+    let again = doctor(&m.f);
+    assert_eq!(again.code, 0, "{}", again.stdout);
 }
 
 /// A `.set-aside` left by an earlier round (RECOVERY.md step 5 makes one per
@@ -653,6 +707,7 @@ const DOCTOR_MAY_NAME: &[&str] = &[
     "crate::plan::Target",
     "crate::requires::missing_via",
     "crate::rescue::Binaries::locate_via",
+    "crate::rescue::parked_rel",
     "crate::rescue::path",
     "crate::rescue::printable",
     "crate::rescue::rescue_attic",

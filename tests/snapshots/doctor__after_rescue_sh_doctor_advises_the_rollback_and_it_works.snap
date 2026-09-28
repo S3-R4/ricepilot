@@ -1,0 +1,86 @@
+---
+source: tests/doctor.rs
+expression: r.stdout
+---
+ricepilot doctor: 3 problems. nothing was changed; the commands are for you to run.
+
+PROBLEM 1 of 3: <HOME>/.config/btop
+  is gone: nothing is where ricepilot's link was.
+  rule: SAFETY.md, the ownership predicate
+
+  the ledger recorded a link here to
+    <HOME>/rice/new/btop
+  for profile `new`.
+
+  something other than ricepilot took it away: ricepilot never removes
+  anything, and when it stops managing a path it says so and forgets it.
+
+  generation 0000, the one `rescue.sh` restores, had nothing here, and
+  the link is in the script's attic:
+    <HOME>/.local/state/ricepilot/attic/rescue-0000
+  `rollback` records that; `switch new` would undo the rescue.
+
+  run:
+    # the rollback stops managing it, and puts nothing back
+    ricepilot rollback
+    ricepilot rollback --commit
+
+PROBLEM 2 of 3: <HOME>/.config/foot
+  points somewhere other than where ricepilot linked it.
+  rule: SAFETY.md, the ownership predicate (fact 3: its target must match the ledger)
+
+  it points at
+    <HOME>/rice/old/foot
+  which is inside profile `old`'s tree
+
+  the ledger recorded a link here to
+    <HOME>/rice/new/foot
+  for profile `new`.
+
+  ricepilot did not re-point it, so it is someone else's link now,
+  and every switch refuses it.
+
+  that is where generation 0000 had it, the one `rescue.sh`
+  restores: most likely the script put it there. to record it
+  again, set it aside and roll back to that generation —
+  not `switch new`, which would undo the rescue.
+
+  run:
+    # set it aside (nothing is lost); the rollback links it again
+    mv -nT <HOME>/.config/foot <HOME>/.config/foot.set-aside
+    ricepilot rollback
+    ricepilot rollback --commit
+
+PROBLEM 3 of 3: <HOME>/.config/hypr
+  points somewhere other than where ricepilot linked it.
+  rule: SAFETY.md, the ownership predicate (fact 3: its target must match the ledger)
+
+  it points at
+    <HOME>/rice/old/hypr
+  which is inside profile `old`'s tree
+
+  the ledger recorded a link here to
+    <HOME>/rice/new/hypr
+  for profile `new`.
+
+  ricepilot did not re-point it, so it is someone else's link now,
+  and every switch refuses it.
+
+  that is where generation 0000 had it, the one `rescue.sh`
+  restores: most likely the script put it there. to record it
+  again, set it aside and roll back to that generation —
+  not `switch new`, which would undo the rescue.
+
+  run:
+    # set it aside (nothing is lost); the rollback links it again
+    mv -nT <HOME>/.config/hypr <HOME>/.config/hypr.set-aside
+    ricepilot rollback
+    ricepilot rollback --commit
+
+not checked, or worth knowing:
+  - profile `new`: <HOME>/rice/new/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: <HOME>/rice/old/hypr/hyprland.lua is a Lua config, which nothing can check before a login (NOT-POSSIBLE.md#verify-lua-config)
+  - profile `old`: no manifest has been recorded for it yet, so its tree was not compared with anything
+  - running theme daemons (/proc) and snapper's configuration (/etc/snapper) were not checked: this is the test sandbox (D56)
+
+ok: no interrupted operation; the ledger and the manifests agree; 2 hypr trees have an entry file; 1 profile tree matches its recorded manifest; rescue.sh restores generation 0000 and parses; attic: 2 entries, 0 B (the newest, rescue-0000, 0 B); no verify-config copies; no interrupted gc

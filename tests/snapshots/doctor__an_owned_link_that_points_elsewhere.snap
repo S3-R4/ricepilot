@@ -9,8 +9,8 @@ PROBLEM 1 of 1: <HOME>/.config/foot
   rule: SAFETY.md, the ownership predicate (fact 3: its target must match the ledger)
 
   it points at
-    <HOME>/rice/old/foot
-  which is inside profile `old`'s tree
+    <HOME>/rice/new/hypr
+  which is inside profile `new`'s tree
 
   the ledger recorded a link here to
     <HOME>/rice/new/foot

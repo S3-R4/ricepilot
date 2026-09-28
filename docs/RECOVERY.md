@@ -253,7 +253,9 @@ linked again to the same place, and one already empty says so.
 **Afterwards, ricepilot's records are out of step.** The script restored the
 links without ricepilot, so ricepilot sees them as links it did not make:
 `doctor` reports each as pointing "somewhere other than where ricepilot
-linked it", and `switch` and `rollback` refuse them. Once you are logged in
+linked it" (or, for one the script parked, as "gone"), says it is where the
+older generation had it, and prints the commands below for it; `switch` and
+`rollback` refuse them until then. Once you are logged in
 and things work, bring the records back in line — move each restored link
 aside, then let ricepilot make it again:
 

@@ -2816,3 +2816,40 @@ still be `0644`, `verify` to be 0 and `switch --strict` to succeed. It also
 requires a later edit elsewhere in the profile to still be reported, with
 neither `profile.toml` nor the adopted copy listed. It fails without the
 change.
+
+## D81 — After `rescue.sh`, `doctor` advises the rollback, not a switch back
+
+*M5, found by the acceptance run (task F).* After `rescue.sh` had restored
+generation `0000` under dash, busybox sh and bash, `doctor` reported each
+restored link as pointing "somewhere other than where ricepilot linked it".
+That part is true, and README and RECOVERY.md step 5 document it. But the
+commands it printed were to set the link aside and then run
+`ricepilot switch bare --commit`. That re-applies the profile the user had
+just used the rescue script to get away from. RECOVERY.md says the
+opposite: set aside, then `rollback --commit`, which re-applies the
+generation the script restored and records it.
+
+`doctor` now reads the generation before the current one, the one
+`rescue.sh` restores and `rollback` goes to. It uses that generation to
+tell the rescue's work apart from anyone else's:
+
+* an owned link that points exactly where that generation had it gets the
+  RECOVERY.md commands: `mv -nT` to a free `.set-aside` name, then
+  `ricepilot rollback` and `ricepilot rollback --commit`. The finding says
+  why, and that `switch <profile>` would undo the rescue;
+* an owned link that is gone gets `rollback` too when that generation
+  recorded nothing there **and** the link is at the place the script parks
+  one (`rescue::parked_rel` inside `attic/rescue-NNNN/`), so the claim is
+  checked, not guessed. A link that is simply gone keeps the old advice.
+
+Anything else keeps the generic advice. doctor is still read-only by
+construction (D57): the generation is read through `Look`, and the one new
+item it names, `rescue::parked_rel`, is pure.
+
+Tested: `tests/doctor.rs::after_rescue_sh_doctor_advises_the_rollback_and_it_works`
+runs the real `rescue.sh` under `/bin/sh`, snapshots doctor's report,
+requires that it never prints `switch new --commit`, then does exactly the
+moves it printed and `rollback --commit`. It then requires the machine to
+be on generation 0000's links and doctor to exit 0. The retargeted-link
+test now points its link somewhere no generation had, so it keeps covering
+the generic case.

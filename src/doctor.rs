@@ -140,8 +140,9 @@ pub fn diagnose(look: &dyn Look, at: &Where) -> Report {
         .map(|g| g.profile.clone())
         .filter(|name| profiles.iter().any(|q| &q.name == name));
 
+    let before = previous_generation(look, p, generation.as_ref());
     if let Some(l) = &ledger {
-        owned_links(look, p, l, &profiles, &mut r);
+        owned_links(look, p, l, &profiles, before.as_ref(), &mut r);
         manifests_agree_with_ledger(p, l, &profiles, &mut r);
     }
     adopted_then_emptied(look, p, ledger.as_ref(), &profiles, &mut r);
@@ -474,12 +475,28 @@ fn generation(
     }
 }
 
+/// The generation before the current one — the one `rollback` goes to and
+/// `rescue.sh` restores — when it can be read. `None` otherwise: it only
+/// sharpens advice, and the `rescue` check reports an unreadable one.
+fn previous_generation(
+    look: &dyn Look,
+    p: &Paths,
+    current: Option<&crate::generations::Generation>,
+) -> Option<crate::generations::Generation> {
+    let id = current?.id.checked_sub(1)?;
+    let path = crate::generations::path(&p.state, id);
+    look.slurp(&path)
+        .and_then(|t| crate::generations::parse(&t, &path, id))
+        .ok()
+}
+
 /// Are the links the ledger records still the links it recorded?
 fn owned_links(
     look: &dyn Look,
     p: &Paths,
     ledger: &crate::ledger::Ledger,
     profiles: &[Prof],
+    before: Option<&crate::generations::Generation>,
     r: &mut Report,
 ) {
     let mut intact = 0usize;
@@ -515,18 +532,52 @@ fn owned_links(
             }
         };
         let Some(meta) = meta else {
-            let mut run = vec!["# ricepilot sees an empty path, and links it again".into()];
-            relink(&mut run);
+            let mut detail = vec![
+                recorded,
+                "something other than ricepilot took it away: ricepilot never removes\n\
+                 anything, and when it stops managing a path it says so and forgets it."
+                    .into(),
+            ];
+            // The generation before had nothing here, and the link is where
+            // `rescue.sh` parks one. A rollback records that (D81).
+            let rescued = before.filter(|g| {
+                g.entries
+                    .iter()
+                    .any(|ge| &ge.dest == dest && ge.target.is_none())
+                    && look
+                        .lstat_or_absent(
+                            &crate::rescue::rescue_attic(&p.state, g.id)
+                                .join(crate::rescue::parked_rel(dest)),
+                        )
+                        .is_ok_and(|m| m.is_some())
+            });
+            let run = match rescued {
+                Some(g) => {
+                    detail.push(format!(
+                        "generation {:04}, the one `rescue.sh` restores, had nothing here, and\n\
+                         the link is in the script's attic:\n  {}\n\
+                         `rollback` records that; `switch {}` would undo the rescue.",
+                        g.id,
+                        crate::rescue::rescue_attic(&p.state, g.id).display(),
+                        e.profile
+                    ));
+                    vec![
+                        "# the rollback stops managing it, and puts nothing back".into(),
+                        "ricepilot rollback".into(),
+                        "ricepilot rollback --commit".into(),
+                    ]
+                }
+                None => {
+                    let mut run = vec!["# ricepilot sees an empty path, and links it again".into()];
+                    relink(&mut run);
+                    run
+                }
+            };
             r.problems.push(Finding {
                 path: dest.clone(),
                 what: "is gone: nothing is where ricepilot's link was".into(),
                 rule: "SAFETY.md, the ownership predicate".into(),
-                detail: vec![
-                    recorded,
-                    "something other than ricepilot took it away: ricepilot never removes\n\
-                     anything, and when it stops managing a path it says so and forgets it."
-                        .into(),
-                ],
+                detail,
                 run,
             });
             continue;
@@ -584,20 +635,48 @@ fn owned_links(
                         .find(|q| now.starts_with(&q.root))
                         .map(|q| format!("\nwhich is inside profile `{}`'s tree", q.name))
                         .unwrap_or_default();
+                    let mut detail = vec![
+                        format!("it points at\n  {}{into}", now.display()),
+                        recorded,
+                        "ricepilot did not re-point it, so it is someone else's link now,\n\
+                         and every switch refuses it."
+                            .into(),
+                    ];
+                    // Where the generation before had it is where `rescue.sh`
+                    // puts it. Linking the ledger's profile again would undo
+                    // the rescue; RECOVERY.md's way back is a rollback (D81).
+                    let rescued = before.filter(|g| {
+                        g.entries
+                            .iter()
+                            .any(|ge| &ge.dest == dest && ge.target.as_ref() == Some(&now))
+                    });
+                    let run = match rescued {
+                        Some(g) => {
+                            detail.push(format!(
+                                "that is where generation {:04} had it, the one `rescue.sh`\n\
+                                 restores: most likely the script put it there. to record it\n\
+                                 again, set it aside and roll back to that generation —\n\
+                                 not `switch {}`, which would undo the rescue.",
+                                g.id, e.profile
+                            ));
+                            vec![
+                                "# set it aside (nothing is lost); the rollback links it again"
+                                    .into(),
+                                format!("mv -nT {} {}", sh(dest), sh(&set_aside(look, dest))),
+                                "ricepilot rollback".into(),
+                                "ricepilot rollback --commit".into(),
+                            ]
+                        }
+                        None => aside(again),
+                    };
                     r.problems.push(Finding {
                         path: dest.clone(),
                         what: "points somewhere other than where ricepilot linked it".into(),
                         rule: "SAFETY.md, the ownership predicate (fact 3: its target must \
                                match the ledger)"
                             .into(),
-                        detail: vec![
-                            format!("it points at\n  {}{into}", now.display()),
-                            recorded,
-                            "ricepilot did not re-point it, so it is someone else's link now,\n\
-                             and every switch refuses it."
-                                .into(),
-                        ],
-                        run: aside(again),
+                        detail,
+                        run,
                     });
                 } else if (meta.dev, meta.ino) != (e.dev, e.ino) {
                     r.problems.push(Finding {
