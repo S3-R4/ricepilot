@@ -124,6 +124,21 @@ fn recover_lands_fully_old_or_fully_new_after_a_crash_at_every_step() {
             None,
             "step {k}: the journal was not retired"
         );
+
+        // Finished, the link is ricepilot's: the ledger records it and a
+        // generation says the adopt happened (D77). Without that it would be
+        // a foreign link the next `switch` refuses.
+        if side == Side::New {
+            let led = ricepilot::ledger::load(&m.f.state().join("ledger.toml")).unwrap();
+            assert!(
+                led.owned_dests().contains(&m.dest),
+                "step {k}: the adopted link is not in the ledger"
+            );
+            let cur = ricepilot::generations::current(&m.f.state())
+                .unwrap()
+                .unwrap_or_else(|| panic!("step {k}: no current generation"));
+            assert!(cur >= 1, "step {k}: the adopt left no generation");
+        }
     }
 
     // Both outcomes have to actually occur, or this suite would pass just as

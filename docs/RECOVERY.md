@@ -129,7 +129,10 @@ ricepilot recover --commit
 `recover` looks at every destination the journal names and decides once, for
 the whole operation: if any destination already has the new link, it
 finishes the switch; if none does, it abandons it and moves the staged links
-to the attic. It never leaves half of each. It then retires the journal.
+to the attic. It never leaves half of each. When it finishes a switch, it
+also records what the switch had not got to — the new generation, the ledger
+rows that make the new links ricepilot's, and `rescue.sh` (D77). It then
+retires the journal.
 Afterwards, run `ricepilot doctor` again.
 
 Use `recover` for this, not `rescue.sh`: the rescue script was written by the

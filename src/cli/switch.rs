@@ -461,3 +461,125 @@ pub fn run_with(
         })),
     })
 }
+
+/// What [`settle_recovered`] brought up to date after a forward recovery.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settled {
+    /// The generation the recovered state is recorded as, and whether this
+    /// recovery wrote it (`false`: the interrupted process had got that far).
+    pub generation: Option<(u32, bool)>,
+    /// How many destinations the ledger now records for the profile, and how
+    /// many it stopped recording.
+    pub owned: usize,
+    pub forgotten: usize,
+    /// The profile's tree manifest, when the profile is one ricepilot can
+    /// load (never for generation `0000`'s pseudo-profile, D41).
+    pub manifest: Option<PathBuf>,
+    /// `rescue.sh`, and the generation it restores.
+    pub rescue: Option<(PathBuf, u32)>,
+}
+
+/// Phase C of an interrupted switch, rollback or adopt, run by `recover`
+/// after it has driven every destination forward (D77).
+///
+/// Finishing the links alone is not finishing the switch. Until the ledger
+/// records them, the new links are *foreign* — the ownership predicate says
+/// ricepilot did not make them — so the next `switch` refuses them, and with
+/// no new generation `rollback` has nothing to go back from. So this does
+/// what the interrupted process would have done after its exchanges, from
+/// the journal and the disk, and every step is idempotent: a step the
+/// process had already done is found done and done again to the same result.
+///
+/// * The destinations: everything the ledger owned before, every journal
+///   entry, every retired destination and the adopted one — the same set the
+///   switch observed (its targets and the ledger's rows; a target the plan
+///   left alone was already a ledger row).
+/// * The generation: the current one if its `created` is this journal's id
+///   (the process wrote it before it died), otherwise the next one, observed
+///   off the disk. None when the generation before it does not exist — a
+///   journal no `switch` or `adopt` wrote — since a generation with nothing
+///   before it would be one `rollback` could not leave.
+/// * The ledger: the entries and the adopted destination are the profile's,
+///   the retired ones are forgotten.
+/// * The tree manifest, when the profile loads and this is not an adopt
+///   (`adopt` records none).
+/// * `rescue.sh`, restoring the generation before.
+///
+/// The journal is still in place while this runs; `recover` retires it
+/// only afterwards, so a failure here leaves a machine `recover` can be run
+/// on again (D25).
+pub fn settle_recovered(paths: &Paths, j: &Journal) -> Result<Settled> {
+    let state = &paths.state;
+    let ledger_file = paths.ledger_path();
+    let mut led = ledger::load(&ledger_file)?;
+
+    let switched: Vec<PathBuf> = j
+        .entries
+        .iter()
+        .map(|e| e.dest.clone())
+        .chain(j.adopt.iter().map(|a| a.dest.clone()))
+        .collect();
+    let retired: Vec<PathBuf> = j.retire.iter().map(|r| r.dest.clone()).collect();
+    let mut dests: Vec<PathBuf> = Vec::new();
+    for d in switched
+        .iter()
+        .chain(retired.iter())
+        .cloned()
+        .chain(led.owned_dests())
+    {
+        if !dests.contains(&d) {
+            dests.push(d);
+        }
+    }
+
+    let current = generations::current(state)?;
+    let already = match current {
+        Some(c) if c > 0 => (generations::load(state, c)?.created == j.id).then_some(c),
+        _ => None,
+    };
+    let generation = match already {
+        Some(c) => Some((c, false)),
+        None => {
+            let new_id = current.map_or(1, |c| c + 1);
+            if read::lstat_or_absent(&generations::path(state, new_id - 1))?.is_some() {
+                let after = Generation::observe(new_id, &j.profile, &j.id, &dests)?;
+                generations::save(state, &after)?;
+                generations::set_current(state, new_id)?;
+                Some((new_id, true))
+            } else {
+                None
+            }
+        }
+    };
+
+    led.record(&switched, &j.profile)?;
+    led.forget(&retired);
+    ledger::save(&ledger_file, &led)?;
+
+    let mut manifest = None;
+    if j.adopt.is_empty() {
+        if let Ok(profile) = super::paths::load(paths, &j.profile) {
+            let root = profile.root(&paths.home);
+            let m = verify::build(&j.profile, &root, &profile.manifest.volatile, &j.id)?;
+            let p = verify::manifest_path(state, &j.profile);
+            verify::save(&p, &m)?;
+            manifest = Some(p);
+        }
+    }
+
+    let rescue = match generation {
+        Some((g, _)) => {
+            let back_to = generations::load(state, g - 1)?;
+            Some((rescue::regenerate(state, &back_to)?, g - 1))
+        }
+        None => None,
+    };
+
+    Ok(Settled {
+        generation,
+        owned: switched.len(),
+        forgotten: retired.len(),
+        manifest,
+        rescue,
+    })
+}

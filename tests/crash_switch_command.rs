@@ -149,3 +149,67 @@ fn a_switch_after_a_crash_refuses_until_recover_has_run() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("recover"));
     assert_eq!(m.live(), before, "and nothing was touched");
 }
+
+/// After `recover`, ricepilot must still own what it put there (D77).
+///
+/// Recovery that finished the links but left the ledger, the generation and
+/// `rescue.sh` where they were before the switch leaves links ricepilot calls
+/// *foreign*: the next `switch` refuses them and `rollback` has nothing to go
+/// back from. So for every crash point: after `recover --commit`, a `switch
+/// new --commit` must succeed and land fully new, and a `rollback --commit`
+/// after it must land fully old — the ordinary way on and off a profile,
+/// both still open.
+#[test]
+fn after_recover_ricepilot_still_owns_what_it_switched() {
+    for k in 0..STEPS {
+        let case = format!("crash_cmd_owns_{k}");
+        crash(&case, k);
+        let m = switching::attach(&case);
+        let (code, stderr) = recover(&m.f);
+        assert_eq!(code, 0, "step {k}: recover failed: {stderr}");
+        let recovered_new = m.live() == m.all_new();
+
+        if recovered_new {
+            // Forward: the records say what the disk says.
+            let led = ricepilot::ledger::load(&m.f.state().join("ledger.toml")).unwrap();
+            let owned = led.owned_dests();
+            for d in m.dests() {
+                assert!(
+                    owned.contains(&d),
+                    "step {k}: {} is not in the ledger",
+                    d.display()
+                );
+            }
+            let cur = ricepilot::generations::current(&m.f.state()).unwrap();
+            let g = ricepilot::generations::load(&m.f.state(), cur.expect("a generation")).unwrap();
+            assert_eq!(
+                g.profile, "new",
+                "step {k}: the current generation is not `new`"
+            );
+        }
+
+        let mut cmd = common::ricepilot(&m.f);
+        cmd.args(["switch", "new", "--commit"]);
+        let out = cmd.output().unwrap();
+        assert_eq!(
+            out.status.code().unwrap(),
+            0,
+            "step {k} (recovered {}): switch after recover failed:\n{}\n{}",
+            if recovered_new { "forward" } else { "backward" },
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(m.live(), m.all_new(), "step {k}: switch did not land new");
+
+        let mut cmd = common::ricepilot(&m.f);
+        cmd.args(["rollback", "--commit"]);
+        let out = cmd.output().unwrap();
+        assert_eq!(
+            out.status.code().unwrap(),
+            0,
+            "step {k}: rollback after recover failed:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(m.live(), m.all_old(), "step {k}: rollback did not land old");
+    }
+}

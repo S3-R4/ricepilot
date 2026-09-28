@@ -25,3 +25,8 @@ been retired to `state/journal/done-20260921T101112Z.toml`.
 displaced links are in `state/attic/20260921T101112Z/`; nothing was removed.
 
 the switch took effect on disk. it reaches the session at the next login.
+
+recorded, as the interrupted process would have:
+  generation  none: there is no generation before this operation to go back to,
+              so none was written, and no rescue script
+  ledger      3 destination(s) owned, 0 no longer

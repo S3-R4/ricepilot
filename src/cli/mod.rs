@@ -217,11 +217,25 @@ fn cmd_recover(paths: &paths::Paths, commit: bool) -> Result<String> {
 
     let recovery = crate::journal::plan_recovery(&journal)?;
     if !commit {
-        return Ok(render::recover(&recovery, false));
+        return Ok(render::recover(&recovery, false) + &render::recover_would_settle(&recovery));
     }
 
-    crate::journal::execute(&recovery, &journal_path, journal.mode()?, &journal.attic)?;
-    Ok(render::recover(&recovery, true))
+    // Forward means the switch happened; its records must say so too (D77).
+    // Backward means it never did, and the records already say that.
+    let mut settled = None;
+    crate::journal::execute_then(
+        &recovery,
+        &journal_path,
+        journal.mode()?,
+        &journal.attic,
+        || {
+            if recovery.direction == crate::journal::Direction::Forward {
+                settled = Some(switch::settle_recovered(paths, &journal)?);
+            }
+            Ok(())
+        },
+    )?;
+    Ok(render::recover(&recovery, true) + &render::recover_settled(settled.as_ref()))
 }
 
 fn cmd_list(paths: &paths::Paths) -> Result<String> {

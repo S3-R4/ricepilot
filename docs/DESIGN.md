@@ -216,7 +216,10 @@ reality** and deciding per destination whether it is old or new; it never
 blindly re-runs recorded steps. Its direction is decided once for the whole
 switch and there are only two of them (D23): forward if any destination is
 already new or mid-exchange, otherwise the switch is abandoned and the staged
-links go to the attic.
+links go to the attic. Going forward, it also writes what phase C had not —
+the generation, the ledger rows, the tree manifest and `rescue.sh` — before
+it retires the journal, so the links it finished are ricepilot's in its
+records as well as on disk (D77).
 
 ### `RENAME_EXCHANGE` and its fallback
 

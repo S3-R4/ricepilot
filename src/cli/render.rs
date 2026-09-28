@@ -397,6 +397,72 @@ original directory is in the attic above."
     s
 }
 
+/// The dry run's note on what `recover --commit` records after going
+/// forward (D77). Nothing for a recovery that goes back: the records already
+/// describe the machine before the switch.
+pub fn recover_would_settle(r: &Recovery) -> String {
+    if r.direction != Direction::Forward {
+        return String::new();
+    }
+    let mut s = String::new();
+    let _ = writeln!(s);
+    let _ = writeln!(
+        s,
+        "with --commit it then records what the interrupted {} did not get to: the new generation,",
+        if r.adopting { "adopt" } else { "switch" }
+    );
+    let _ = writeln!(
+        s,
+        "the ledger rows that make the new links ricepilot's, and `rescue.sh` — before the journal"
+    );
+    let _ = writeln!(s, "is retired.");
+    s
+}
+
+/// What `recover --commit` recorded after going forward (D77).
+pub fn recover_settled(settled: Option<&super::switch::Settled>) -> String {
+    let Some(st) = settled else {
+        return String::new();
+    };
+    let mut s = String::new();
+    let _ = writeln!(s);
+    let _ = writeln!(s, "recorded, as the interrupted process would have:");
+    match st.generation {
+        Some((g, true)) => {
+            let _ = writeln!(s, "  generation  {g:04} is current");
+        }
+        Some((g, false)) => {
+            let _ = writeln!(
+                s,
+                "  generation  {g:04} is current (it had already been written)"
+            );
+        }
+        None => {
+            let _ = writeln!(
+                s,
+                "  generation  none: there is no generation before this operation to go back to,"
+            );
+            let _ = writeln!(s, "              so none was written, and no rescue script");
+        }
+    }
+    let _ = writeln!(
+        s,
+        "  ledger      {} destination(s) owned, {} no longer",
+        st.owned, st.forgotten
+    );
+    if let Some(m) = &st.manifest {
+        let _ = writeln!(s, "  manifest    {}", m.display());
+    }
+    if let Some((script, back_to)) = &st.rescue {
+        let _ = writeln!(
+            s,
+            "  rescue      restores generation {back_to:04}: {}",
+            sh_line(script)
+        );
+    }
+    s
+}
+
 /// `ricepilot verify <profile>`.
 ///
 /// Says what was compared before it says what differs. A drift report whose

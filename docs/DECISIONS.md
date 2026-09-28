@@ -2673,3 +2673,59 @@ exit non-zero, no staging link left).
 
 Not covered: a path in a finding's free-text detail is still printed
 lossily, as it was.
+
+## D77 — A forward `recover` finishes the switch's records, not only its links
+
+*M5, found by the acceptance run (task F).* SIGKILL at an exact syscall
+(strace fault injection) during `switch bare --commit` on a synthetic rice,
+then `recover --commit`: the links came out fully new every time, and in
+every case where the kill landed before the switch had saved its ledger the
+very next `switch bare --commit` refused `~/.config/hypr` and
+`~/.config/fish` as **foreign links**. `recover` drove the destinations
+forward and retired the journal, and never did phase C — no generation, no
+ledger rows, no tree manifest, `rescue.sh` still restoring the generation
+before the last *completed* switch. The links were ricepilot's on disk and
+nobody's in its records: the next switch refused them, and `rollback` either
+had nothing to roll back from or went back past the switch it was asked to
+undo. The M2/M3 crash suites asserted "fully old or fully new" and a retired
+journal, both true; none asked whether ricepilot could still use the machine
+afterwards.
+
+**Going forward now settles the records too, before the journal is
+retired.** `journal::execute_then` runs a callback after the last action and
+before `mark_done`, so a failure in it leaves the journal in place and
+`recover` can run again (D25). `cli::switch::settle_recovered` is that
+callback for a forward recovery, and does from the journal and the disk what
+the interrupted process would have done after its exchanges:
+
+* the destinations are the ledger's rows, every journal entry, every
+  retired destination and the adopted one — the set the switch observed
+  (a target its plan left alone was already a ledger row);
+* the generation is the current one if its `created` is this journal's id
+  (the process got that far), otherwise the next one, observed off the disk
+  and made current. If the generation before it does not exist — a journal
+  no `switch` or `adopt` wrote, which only the ops-level test fixtures make —
+  none is written, and the output says so, because a generation with nothing
+  before it is one `rollback` could not leave;
+* the ledger records the entries and the adopted destination for the
+  journal's profile and forgets the retired ones;
+* the tree manifest is recorded when the profile loads and this is not an
+  adopt (`adopt` records none; generation `0000`'s pseudo-profile does not
+  load, as D41 already has it for `rollback`);
+* `rescue.sh` is regenerated to restore the generation before.
+
+Every step is idempotent — the same observation, the same rows, the same
+file written atomically — so a crash at any point after the exchanges and
+before the journal was retired settles to the same records.
+
+A backward recovery changes nothing here: the switch never took effect,
+and the records already describe the machine as it was. The dry run says
+what `--commit` will record; the commit lists what it recorded.
+
+Tested: `tests/crash_switch_command.rs` crashes the real command after every
+step, recovers, and then requires `switch new --commit` to land fully new
+and `rollback --commit` to land fully old, and, for a forward recovery,
+the ledger to own every destination and the current generation to be
+`new`'s. `tests/crash_adopt_command.rs` requires a finished adopt's link to
+be in the ledger with a generation. The acceptance run repeats it on the
+synthetic rice at every `renameat`, `renameat2`, `symlinkat` and `fsync`.

@@ -1172,6 +1172,20 @@ pub fn plan_recovery(j: &Journal) -> Result<Recovery> {
 /// decision and the executed one are the same value (R4), exactly as
 /// [`crate::plan`] and [`mutate::apply`] are.
 pub fn execute(r: &Recovery, journal_path: &Path, mode: ExchangeMode, attic: &Path) -> Result<()> {
+    execute_then(r, journal_path, mode, attic, || Ok(()))
+}
+
+/// [`execute`], with `settle` run after the last action and before the
+/// journal is retired: `recover` brings the ledger, the generation and
+/// `rescue.sh` up to date there (D77), while another `recover` can still be
+/// run if that fails.
+pub fn execute_then(
+    r: &Recovery,
+    journal_path: &Path,
+    mode: ExchangeMode,
+    attic: &Path,
+    settle: impl FnOnce() -> Result<()>,
+) -> Result<()> {
     for action in &r.actions {
         match action {
             Action::StageLink { path, target } => mutate::create_symlink_tmp(path, target)?,
@@ -1188,6 +1202,7 @@ pub fn execute(r: &Recovery, journal_path: &Path, mode: ExchangeMode, attic: &Pa
     // journal is in place another `recover` can be run, and that must stay
     // true until every action above has succeeded. A failure half way through
     // recovery leaves a machine that can be recovered again.
+    settle()?;
     mark_done(journal_path, &r.id)?;
     Ok(())
 }

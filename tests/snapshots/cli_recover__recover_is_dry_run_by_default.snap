@@ -21,3 +21,7 @@ would apply 6 operation(s):
   fsync dir    <HOME>/.local/state/ricepilot/attic/20260921T101112Z
 
 nothing has been changed. re-run with --commit to carry this out.
+
+with --commit it then records what the interrupted switch did not get to: the new generation,
+the ledger rows that make the new links ricepilot's, and `rescue.sh` — before the journal
+is retired.
